@@ -25,6 +25,7 @@ import {
   SavingsLedgerData,
 } from '../types/finance';
 import { getBudgetFileName, SAVINGS_LEDGER_FILE_NAME } from '../services/driveService';
+import { FinanceStorageService } from '../services/storageService';
 
 interface DriveFilesManagerViewProps {
   driveStatus: DriveSyncStatus;
@@ -67,6 +68,14 @@ export const DriveFilesManagerView: React.FC<DriveFilesManagerViewProps> = ({
   const budgetFileName = getBudgetFileName(currentYear);
   const budgetDriveFile = driveFiles.find((f) => f.name === budgetFileName);
   const ledgerDriveFile = driveFiles.find((f) => f.name === SAVINGS_LEDGER_FILE_NAME);
+
+  const budgetTimestampStatus = budgetDriveFile
+    ? FinanceStorageService.compareTimestamps(budget.lastUpdated, budgetDriveFile.modifiedTime)
+    : null;
+
+  const ledgerTimestampStatus = ledgerDriveFile
+    ? FinanceStorageService.compareTimestamps(ledger.lastUpdated, ledgerDriveFile.modifiedTime)
+    : null;
 
   const handleDownload = (data: any, filename: string) => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -195,10 +204,21 @@ export const DriveFilesManagerView: React.FC<DriveFilesManagerViewProps> = ({
                 <span className="text-slate-500">Records in File:</span>
                 <span className="font-mono font-semibold">{budget.entries.length} entries</span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <span className="text-slate-500">Google Drive Status:</span>
                 <span className="font-medium text-slate-800 dark:text-slate-200">
-                  {budgetDriveFile ? 'Present in Google Drive' : 'Cached locally (Sync pending)'}
+                  {!budgetDriveFile ? (
+                    <span className="text-amber-600 dark:text-amber-400">Cached locally (Sync pending)</span>
+                  ) : budgetTimestampStatus === 'local_newer' ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold inline-flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      Local is latest (Unsaved cloud edits)
+                    </span>
+                  ) : budgetTimestampStatus === 'drive_newer' ? (
+                    <span className="text-blue-600 dark:text-blue-400 font-semibold">Drive cloud backup is newer</span>
+                  ) : (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">In sync with Google Drive</span>
+                  )}
                 </span>
               </div>
               {budgetDriveFile && (
@@ -276,10 +296,21 @@ export const DriveFilesManagerView: React.FC<DriveFilesManagerViewProps> = ({
                 <span className="text-slate-500">Total Transactions:</span>
                 <span className="font-mono font-semibold">{ledger.transactions.length} transfers</span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <span className="text-slate-500">Google Drive Status:</span>
                 <span className="font-medium text-slate-800 dark:text-slate-200">
-                  {ledgerDriveFile ? 'Present in Google Drive' : 'Cached locally (Sync pending)'}
+                  {!ledgerDriveFile ? (
+                    <span className="text-amber-600 dark:text-amber-400">Cached locally (Sync pending)</span>
+                  ) : ledgerTimestampStatus === 'local_newer' ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold inline-flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      Local is latest (Unsaved cloud edits)
+                    </span>
+                  ) : ledgerTimestampStatus === 'drive_newer' ? (
+                    <span className="text-blue-600 dark:text-blue-400 font-semibold">Drive cloud backup is newer</span>
+                  ) : (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">In sync with Google Drive</span>
+                  )}
                 </span>
               </div>
               {ledgerDriveFile && (

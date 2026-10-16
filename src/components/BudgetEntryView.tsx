@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Plus,
   Filter,
@@ -92,7 +92,33 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
       // ignore
     }
   };
-  const [selectedPeriodFilter, setSelectedPeriodFilter] = useState<string>('May');
+  const currentMonthName = MONTH_NAMES[new Date().getMonth()] || 'Jan';
+  const currentBiWeeklyPeriod = `${currentMonthName}-${new Date().getDate() <= 15 ? 'P1' : 'P2'}`;
+  const defaultPeriod = frequency === 'monthly' ? currentMonthName : currentBiWeeklyPeriod;
+  const [selectedPeriodFilter, setSelectedPeriodFilter] = useState<string>(defaultPeriod);
+
+  // Sync default period when frequency changes
+  useEffect(() => {
+    if (frequency === 'monthly') {
+      if (!MONTH_NAMES.includes(selectedPeriodFilter) && selectedPeriodFilter !== 'all') {
+        const match = selectedPeriodFilter.match(/^([A-Za-z]+)-P[12]$/);
+        if (match && MONTH_NAMES.includes(match[1])) {
+          setSelectedPeriodFilter(match[1]);
+        } else {
+          setSelectedPeriodFilter(currentMonthName);
+        }
+      }
+    } else {
+      if (!BIWEEKLY_PERIODS.some((p) => p.id === selectedPeriodFilter) && selectedPeriodFilter !== 'all') {
+        if (MONTH_NAMES.includes(selectedPeriodFilter)) {
+          setSelectedPeriodFilter(`${selectedPeriodFilter}-P1`);
+        } else {
+          setSelectedPeriodFilter(currentBiWeeklyPeriod);
+        }
+      }
+    }
+  }, [frequency, currentMonthName, currentBiWeeklyPeriod, selectedPeriodFilter]);
+
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -109,7 +135,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
   // Modal period mode and selection
   const [modalFrequency, setModalFrequency] = useState<EntryFrequency>(frequency);
   const [modalPeriod, setModalPeriod] = useState<string>(
-    frequency === 'monthly' ? MONTH_NAMES[new Date().getMonth()] : 'P01'
+    frequency === 'monthly' ? currentMonthName : currentBiWeeklyPeriod
   );
 
   // Form state for new entry
@@ -129,7 +155,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
   const [splitterSavings, setSplitterSavings] = useState<string>('1000');
   const [splitterAccountId, setSplitterAccountId] = useState<string>(accounts[0]?.id || '');
   const [splitterPeriod, setSplitterPeriod] = useState<string>(
-    frequency === 'monthly' ? MONTH_NAMES[new Date().getMonth()] : 'P01'
+    frequency === 'monthly' ? currentMonthName : currentBiWeeklyPeriod
   );
 
   // Get approximate date string for a period
@@ -139,8 +165,18 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
       const safeMonth = monthIdx >= 0 ? monthIdx + 1 : 1;
       return `${yr}-${String(safeMonth).padStart(2, '0')}-01`;
     } else {
-      const match = period.match(/\d+/);
-      const pNum = match ? parseInt(match[0], 10) : 1;
+      // Matches Month-P1, Month-P2 (e.g. Jan-P1, Oct-P2)
+      const match = period.match(/^([A-Za-z]{3})-P([12])$/);
+      if (match) {
+        const mStr = match[1];
+        const pNum = parseInt(match[2], 10);
+        const mIdx = MONTH_NAMES.indexOf(mStr);
+        const safeMonth = mIdx >= 0 ? mIdx + 1 : 1;
+        const day = pNum === 1 ? '01' : '16';
+        return `${yr}-${String(safeMonth).padStart(2, '0')}-${day}`;
+      }
+      const matchOld = period.match(/\d+/);
+      const pNum = matchOld ? parseInt(matchOld[0], 10) : 1;
       const targetDate = new Date(yr, 0, 1 + (pNum - 1) * 14);
       const m = String(targetDate.getMonth() + 1).padStart(2, '0');
       const d = String(targetDate.getDate()).padStart(2, '0');
@@ -156,8 +192,8 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
         : selectedPeriodFilter !== 'all'
         ? selectedPeriodFilter
         : frequency === 'monthly'
-        ? MONTH_NAMES[new Date().getMonth()]
-        : 'P01';
+        ? currentMonthName
+        : currentBiWeeklyPeriod;
 
     setModalFrequency(frequency);
     setModalPeriod(targetPeriod);
@@ -277,14 +313,14 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
   const handleCreateEntry = (e: React.FormEvent) => {
     e.preventDefault();
     const amountNum = parseFloat(formAmount);
-    if (isNaN(amountNum) || amountNum <= 0) return;
+    if (isNaN(amountNum) || amountNum < 0) return;
 
     let periodIndex = 0;
     if (modalFrequency === 'monthly') {
       periodIndex = Math.max(0, MONTH_NAMES.indexOf(modalPeriod));
     } else {
-      const match = modalPeriod.match(/\d+/);
-      periodIndex = match ? parseInt(match[0], 10) - 1 : 0;
+      const idx = BIWEEKLY_PERIODS.findIndex((p) => p.id === modalPeriod);
+      periodIndex = idx >= 0 ? idx : 0;
     }
 
     const selectedAcc = accounts.find((a) => a.id === formAccountId);
@@ -319,8 +355,8 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
     if (frequency === 'monthly') {
       periodIndex = Math.max(0, MONTH_NAMES.indexOf(chosenPeriod));
     } else {
-      const match = chosenPeriod.match(/\d+/);
-      periodIndex = match ? parseInt(match[0], 10) - 1 : 0;
+      const idx = BIWEEKLY_PERIODS.findIndex((p) => p.id === chosenPeriod);
+      periodIndex = idx >= 0 ? idx : 0;
     }
 
     const repDate = getRepresentativeDateForPeriod(chosenPeriod, frequency, budget.year);
@@ -452,7 +488,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
         <BudgetSpreadsheetView
           budget={budget}
           accounts={accounts}
-          selectedPeriod={selectedPeriodFilter === 'all' ? 'May' : selectedPeriodFilter}
+          selectedPeriod={selectedPeriodFilter === 'all' ? defaultPeriod : selectedPeriodFilter}
           onSelectPeriod={(p) => setSelectedPeriodFilter(p)}
           frequency={frequency}
           onChangeFrequency={onChangeFrequency}
@@ -523,7 +559,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                 type="button"
                 onClick={() => {
                   onChangeFrequency('monthly');
-                  setSelectedPeriodFilter('all');
+                  setSelectedPeriodFilter(currentMonthName);
                 }}
                 className={`px-3 py-1.5 rounded-lg transition-all ${
                   frequency === 'monthly'
@@ -537,7 +573,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                 type="button"
                 onClick={() => {
                   onChangeFrequency('bi-weekly');
-                  setSelectedPeriodFilter('all');
+                  setSelectedPeriodFilter(currentBiWeeklyPeriod);
                 }}
                 className={`px-3 py-1.5 rounded-lg transition-all ${
                   frequency === 'bi-weekly'
@@ -580,37 +616,43 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
         </div>
 
         {/* Filters and Period Bar */}
-        <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+        <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3 text-xs">
           
           {/* Period selector tabs */}
-          <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 scrollbar-none">
-            <button
-              onClick={() => setSelectedPeriodFilter('all')}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-colors shrink-0 ${
-                selectedPeriodFilter === 'all'
-                  ? 'bg-indigo-600 text-white font-semibold shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              All Periods
-            </button>
-            {periodOptions.map((period) => (
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold shrink-0">
+              <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Period:</span>
+            </div>
+            <div className="flex items-center gap-1 overflow-x-auto min-w-0 w-full pb-1 scrollbar-thin bg-slate-50 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
               <button
-                key={period}
-                onClick={() => setSelectedPeriodFilter(period)}
-                className={`px-2.5 py-1.5 rounded-lg font-medium transition-colors shrink-0 ${
-                  selectedPeriodFilter === period
+                onClick={() => setSelectedPeriodFilter('all')}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors shrink-0 ${
+                  selectedPeriodFilter === 'all'
                     ? 'bg-indigo-600 text-white font-semibold shadow-xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                 }`}
               >
-                {period}
+                All Periods
               </button>
-            ))}
+              {periodOptions.map((period) => (
+                <button
+                  key={period}
+                  onClick={() => setSelectedPeriodFilter(period)}
+                  className={`px-2.5 py-1.5 rounded-lg font-semibold transition-colors shrink-0 ${
+                    selectedPeriodFilter === period
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {period}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Type Filter & Search input */}
-          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
             <select
               value={selectedTypeFilter}
               onChange={(e) => setSelectedTypeFilter(e.target.value)}
@@ -907,7 +949,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                       type="button"
                       onClick={() => {
                         setModalFrequency('bi-weekly');
-                        handleModalPeriodChange('P01');
+                        handleModalPeriodChange(currentBiWeeklyPeriod);
                       }}
                       className={`px-2 py-0.5 rounded-md ${
                         modalFrequency === 'bi-weekly'
@@ -1138,8 +1180,9 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                     <input
                       type="number"
                       step="0.01"
+                      min="0"
                       required
-                      placeholder="e.g. 450.00"
+                      placeholder="e.g. 0.00"
                       value={formAmount}
                       onChange={(e) => setFormAmount(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-base font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"

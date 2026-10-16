@@ -130,9 +130,9 @@ export const CashflowChart: React.FC<CashflowChartProps> = ({
       {/* SVG Chart */}
       <div className="relative">
         <div className="overflow-x-auto pb-2 scrollbar-thin">
-          <div style={{ minWidth: frequency === 'bi-weekly' ? '800px' : '580px' }}>
+          <div style={{ minWidth: frequency === 'bi-weekly' ? '1060px' : '580px' }}>
             <svg
-              viewBox={`0 0 ${frequency === 'bi-weekly' ? 840 : 640} ${chartHeight}`}
+              viewBox={`0 0 ${frequency === 'bi-weekly' ? 1080 : 640} ${chartHeight}`}
               className="w-full h-56 select-none"
             >
               {/* Background horizontal grid lines */}
@@ -144,7 +144,7 @@ export const CashflowChart: React.FC<CashflowChartProps> = ({
                     <line
                       x1="40"
                       y1={y}
-                      x2={frequency === 'bi-weekly' ? 830 : 630}
+                      x2={frequency === 'bi-weekly' ? 1070 : 630}
                       y2={y}
                       stroke="currentColor"
                       strokeDasharray="3 3"
@@ -165,7 +165,7 @@ export const CashflowChart: React.FC<CashflowChartProps> = ({
               {/* Data Bars */}
               {aggregatedData.map((d, i) => {
                 const count = aggregatedData.length;
-                const chartWidth = (frequency === 'bi-weekly' ? 830 : 630) - 45;
+                const chartWidth = (frequency === 'bi-weekly' ? 1070 : 630) - 45;
                 const slotWidth = chartWidth / count;
                 const groupX = 45 + i * slotWidth;
                 const barWidth = Math.max(3, Math.min(14, slotWidth / 4));
@@ -235,7 +235,7 @@ export const CashflowChart: React.FC<CashflowChartProps> = ({
                       x={groupX + slotWidth / 2}
                       y={chartHeight - 10}
                       textAnchor="middle"
-                      className={`text-[10px] font-medium transition-colors ${
+                      className={`${frequency === 'bi-weekly' ? 'text-[9px]' : 'text-[10px]'} font-medium transition-colors ${
                         isHovered
                           ? 'fill-indigo-600 dark:fill-indigo-400 font-bold'
                           : 'fill-slate-500 dark:fill-slate-400'

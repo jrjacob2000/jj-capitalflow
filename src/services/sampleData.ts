@@ -53,12 +53,20 @@ export const MONTH_NAMES = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ];
 
-export const BIWEEKLY_PERIODS = Array.from({ length: 26 }, (_, i) => ({
-  id: `P${String(i + 1).padStart(2, '0')}`,
-  label: `Pay Period ${i + 1}`,
-  index: i,
-  approxMonth: MONTH_NAMES[Math.min(11, Math.floor(i / 2.17))],
-}));
+export const BIWEEKLY_PERIODS = MONTH_NAMES.flatMap((m, monthIdx) => [
+  {
+    id: `${m}-P1`,
+    label: `${m}-P1`,
+    index: monthIdx * 2,
+    approxMonth: m,
+  },
+  {
+    id: `${m}-P2`,
+    label: `${m}-P2`,
+    index: monthIdx * 2 + 1,
+    approxMonth: m,
+  },
+]);
 
 export const EXPENSE_CATEGORIES = [
   'Thites-Charity',

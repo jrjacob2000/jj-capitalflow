@@ -29,6 +29,7 @@ import { BudgetEntryView } from './components/BudgetEntryView';
 import { SavingsLedgerView } from './components/SavingsLedgerView';
 import { DriveFilesManagerView } from './components/DriveFilesManagerView';
 import { ConfirmationModal } from './components/ConfirmationModal';
+import { DriveConflictModal, DriveConflictDetail } from './components/DriveConflictModal';
 import { getBudgetFileName, SAVINGS_LEDGER_FILE_NAME } from './services/driveService';
 import { CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 
@@ -60,6 +61,15 @@ export default function App() {
     savingsFileId: null,
   });
   const [driveFiles, setDriveFiles] = useState<DriveFileInfo[]>([]);
+
+  // Conflict / Overwrite Prevention Modal State
+  const [conflictModalState, setConflictModalState] = useState<{
+    isOpen: boolean;
+    items: DriveConflictDetail[];
+  }>({
+    isOpen: false,
+    items: [],
+  });
 
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -128,7 +138,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Google Sign-In handler
+  // Google Sign-In handler with local overwrite protection & conflict check
   const handleSignInWithGoogle = async () => {
     try {
       setDriveStatus((prev) => ({ ...prev, isSyncing: true, error: null }));
@@ -146,28 +156,173 @@ export default function App() {
         userPhoto: result.user.photoURL,
         isSyncing: false,
       }));
-      showToast(`Connected to Google Drive as ${result.user.email}`);
 
       // Scan Google Drive for existing files
       const files = await FinanceStorageService.fetchDriveFiles(result.accessToken);
       setDriveFiles(files);
 
-      // Check if there is an existing annual file in Drive for currentYear
+      const conflictItems: DriveConflictDetail[] = [];
+      const currentLocalBudget = FinanceStorageService.loadLocalBudget(currentYear);
+      const currentLocalLedger = FinanceStorageService.loadLocalSavingsLedger();
+
+      // 1. Check if there is an existing annual file in Drive for currentYear
       const existingBudgetFile = files.find((f) => f.name === getBudgetFileName(currentYear));
       if (existingBudgetFile) {
-        const pulled = await FinanceStorageService.pullBudgetFromDrive(result.accessToken, currentYear);
-        if (pulled) {
-          setBudget(pulled.budget);
+        const driveBudgetRes = await FinanceStorageService.fetchBudgetFromDrive(result.accessToken, currentYear);
+        if (driveBudgetRes) {
+          const timestampStatus = FinanceStorageService.compareTimestamps(
+            currentLocalBudget.lastUpdated,
+            driveBudgetRes.budget.lastUpdated || driveBudgetRes.file.modifiedTime
+          );
+
+          // Check if contents are identical
+          const isIdentical =
+            JSON.stringify(currentLocalBudget.entries) === JSON.stringify(driveBudgetRes.budget.entries) &&
+            currentLocalBudget.budgets?.length === driveBudgetRes.budget.budgets?.length &&
+            JSON.stringify(currentLocalBudget.customCategories || {}) === JSON.stringify(driveBudgetRes.budget.customCategories || {});
+
+          if (!isIdentical) {
+            conflictItems.push({
+              id: 'budget',
+              title: `${currentYear} Annual Budget`,
+              fileName: getBudgetFileName(currentYear),
+              status: timestampStatus === 'local_newer' ? 'local_newer' : 'drive_newer',
+              localTimestamp: currentLocalBudget.lastUpdated,
+              driveTimestamp: driveBudgetRes.budget.lastUpdated || driveBudgetRes.file.modifiedTime,
+              localStats: {
+                count: currentLocalBudget.entries.length,
+                countLabel: 'budget entries',
+                detail: `₱${currentLocalBudget.entries.reduce((sum, e) => sum + (e.amount || 0), 0).toLocaleString()} recorded`,
+              },
+              driveStats: {
+                count: driveBudgetRes.budget.entries.length,
+                countLabel: 'budget entries',
+                fileSize: driveBudgetRes.file.size ? `${Math.round(parseInt(driveBudgetRes.file.size, 10) / 1024)} KB` : undefined,
+              },
+              onKeepLocal: () => {
+                showToast(`Kept local ${currentYear} budget (Drive copy was not loaded).`, 'info');
+                setConflictModalState((prev) => ({
+                  ...prev,
+                  items: prev.items.filter((i) => i.id !== 'budget'),
+                  isOpen: prev.items.filter((i) => i.id !== 'budget').length > 0,
+                }));
+              },
+              onOverwriteWithDrive: () => {
+                FinanceStorageService.saveLocalBudget(driveBudgetRes.budget);
+                setBudget(driveBudgetRes.budget);
+                showToast(`Loaded ${currentYear} budget from Google Drive.`, 'success');
+                setConflictModalState((prev) => ({
+                  ...prev,
+                  items: prev.items.filter((i) => i.id !== 'budget'),
+                  isOpen: prev.items.filter((i) => i.id !== 'budget').length > 0,
+                }));
+              },
+              onPushToDrive: async () => {
+                try {
+                  await FinanceStorageService.syncBudgetToDrive(result.accessToken, currentLocalBudget, existingBudgetFile?.id);
+                  const updatedFiles = await FinanceStorageService.fetchDriveFiles(result.accessToken);
+                  setDriveFiles(updatedFiles);
+                  showToast(`Uploaded local ${currentYear} budget to Google Drive!`, 'success');
+                  setConflictModalState((prev) => ({
+                    ...prev,
+                    items: prev.items.filter((i) => i.id !== 'budget'),
+                    isOpen: prev.items.filter((i) => i.id !== 'budget').length > 0,
+                  }));
+                } catch (err: any) {
+                  showToast(`Upload failed: ${err.message}`, 'error');
+                }
+              },
+            });
+          }
         }
       }
 
-      // Check if there is an existing savings ledger in Drive
+      // 2. Check if there is an existing savings ledger in Drive
       const existingLedgerFile = files.find((f) => f.name === SAVINGS_LEDGER_FILE_NAME);
       if (existingLedgerFile) {
-        const pulledLedger = await FinanceStorageService.pullLedgerFromDrive(result.accessToken);
-        if (pulledLedger) {
-          setLedger(pulledLedger.ledger);
+        const driveLedgerRes = await FinanceStorageService.fetchLedgerFromDrive(result.accessToken);
+        if (driveLedgerRes) {
+          const timestampStatus = FinanceStorageService.compareTimestamps(
+            currentLocalLedger.lastUpdated,
+            driveLedgerRes.ledger.lastUpdated || driveLedgerRes.file.modifiedTime
+          );
+
+          const isIdentical =
+            JSON.stringify(currentLocalLedger.transactions) === JSON.stringify(driveLedgerRes.ledger.transactions) &&
+            currentLocalLedger.accounts?.length === driveLedgerRes.ledger.accounts?.length &&
+            currentLocalLedger.initialCapital === driveLedgerRes.ledger.initialCapital;
+
+          if (!isIdentical) {
+            conflictItems.push({
+              id: 'ledger',
+              title: 'Savings & Capital Ledger',
+              fileName: SAVINGS_LEDGER_FILE_NAME,
+              status: timestampStatus === 'local_newer' ? 'local_newer' : 'drive_newer',
+              localTimestamp: currentLocalLedger.lastUpdated,
+              driveTimestamp: driveLedgerRes.ledger.lastUpdated || driveLedgerRes.file.modifiedTime,
+              localStats: {
+                count: currentLocalLedger.transactions.length,
+                countLabel: 'transactions',
+                detail: `${currentLocalLedger.accounts.length} accounts`,
+              },
+              driveStats: {
+                count: driveLedgerRes.ledger.transactions.length,
+                countLabel: 'transactions',
+                fileSize: driveLedgerRes.file.size ? `${Math.round(parseInt(driveLedgerRes.file.size, 10) / 1024)} KB` : undefined,
+              },
+              onKeepLocal: () => {
+                showToast('Kept local savings ledger (Drive copy was not loaded).', 'info');
+                setConflictModalState((prev) => ({
+                  ...prev,
+                  items: prev.items.filter((i) => i.id !== 'ledger'),
+                  isOpen: prev.items.filter((i) => i.id !== 'ledger').length > 0,
+                }));
+              },
+              onOverwriteWithDrive: () => {
+                FinanceStorageService.saveLocalSavingsLedger(driveLedgerRes.ledger);
+                setLedger(driveLedgerRes.ledger);
+                showToast('Loaded savings ledger from Google Drive.', 'success');
+                setConflictModalState((prev) => ({
+                  ...prev,
+                  items: prev.items.filter((i) => i.id !== 'ledger'),
+                  isOpen: prev.items.filter((i) => i.id !== 'ledger').length > 0,
+                }));
+              },
+              onPushToDrive: async () => {
+                try {
+                  await FinanceStorageService.syncLedgerToDrive(result.accessToken, currentLocalLedger, existingLedgerFile?.id);
+                  const updatedFiles = await FinanceStorageService.fetchDriveFiles(result.accessToken);
+                  setDriveFiles(updatedFiles);
+                  showToast('Uploaded local savings ledger to Google Drive!', 'success');
+                  setConflictModalState((prev) => ({
+                    ...prev,
+                    items: prev.items.filter((i) => i.id !== 'ledger'),
+                    isOpen: prev.items.filter((i) => i.id !== 'ledger').length > 0,
+                  }));
+                } catch (err: any) {
+                  showToast(`Upload failed: ${err.message}`, 'error');
+                }
+              },
+            });
+          }
         }
+      }
+
+      // Check results: DO NOT overwrite local changes silently!
+      if (conflictItems.length > 0) {
+        setConflictModalState({
+          isOpen: true,
+          items: conflictItems,
+        });
+
+        const allLocalNewer = conflictItems.every((i) => i.status === 'local_newer');
+        if (allLocalNewer) {
+          showToast(`Connected to Drive! Local changes are newer and were preserved.`, 'info');
+        } else {
+          showToast(`Connected to Drive. Review cloud file differences.`, 'info');
+        }
+      } else {
+        showToast(`Connected to Google Drive as ${result.user.email}`);
       }
     } catch (err: any) {
       if (
@@ -188,6 +343,40 @@ export default function App() {
     }
   };
 
+  const handleKeepAllLocal = () => {
+    setConflictModalState({ isOpen: false, items: [] });
+    showToast('Preserved all local changes on this device.', 'info');
+  };
+
+  const handlePushAllLocalToDrive = async () => {
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      setDriveStatus((p) => ({ ...p, isSyncing: true }));
+      const currentLocalBudget = FinanceStorageService.loadLocalBudget(currentYear);
+      const currentLocalLedger = FinanceStorageService.loadLocalSavingsLedger();
+      await FinanceStorageService.syncBudgetToDrive(token, currentLocalBudget);
+      await FinanceStorageService.syncLedgerToDrive(token, currentLocalLedger);
+      const files = await FinanceStorageService.fetchDriveFiles(token);
+      setDriveFiles(files);
+      setDriveStatus((p) => ({
+        ...p,
+        isSyncing: false,
+        lastSyncedAt: new Date().toLocaleTimeString(),
+      }));
+      setConflictModalState({ isOpen: false, items: [] });
+      showToast('Uploaded latest local budget and ledger to Google Drive!', 'success');
+    } catch (err: any) {
+      setDriveStatus((p) => ({ ...p, isSyncing: false, error: err.message }));
+      showToast(`Upload failed: ${err.message}`, 'error');
+    }
+  };
+
+  const handleOverwriteAllWithDrive = () => {
+    conflictModalState.items.forEach((item) => item.onOverwriteWithDrive());
+    setConflictModalState({ isOpen: false, items: [] });
+  };
+
   const handleSignOut = async () => {
     await logout();
     setDriveStatus((prev) => ({
@@ -200,23 +389,69 @@ export default function App() {
     showToast('Signed out of Google Drive', 'info');
   };
 
-  // Switch year
+  // Switch year safely without overwriting newer local edits
   const handleSelectYear = async (year: number) => {
     setCurrentYear(year);
     const loadedBudget = FinanceStorageService.loadLocalBudget(year);
     setBudget(loadedBudget);
 
-    // If signed into Google Drive, check if Drive has a version
+    // If signed into Google Drive, verify version safely
     const token = await getAccessToken();
     if (token) {
       try {
-        const pulled = await FinanceStorageService.pullBudgetFromDrive(token, year);
-        if (pulled) {
-          setBudget(pulled.budget);
-          showToast(`Loaded ${year} budget from Google Drive`);
+        const driveRes = await FinanceStorageService.fetchBudgetFromDrive(token, year);
+        if (driveRes) {
+          const timestampStatus = FinanceStorageService.compareTimestamps(
+            loadedBudget.lastUpdated,
+            driveRes.budget.lastUpdated || driveRes.file.modifiedTime
+          );
+
+          const isIdentical =
+            JSON.stringify(loadedBudget.entries) === JSON.stringify(driveRes.budget.entries) &&
+            loadedBudget.budgets?.length === driveRes.budget.budgets?.length;
+
+          if (isIdentical) {
+            return;
+          }
+
+          if (timestampStatus === 'local_newer' && loadedBudget.entries.length > 0) {
+            // Local is newer: DO NOT overwrite!
+            showToast(`Opened ${year} budget (Local version is newer than Drive and was kept).`, 'info');
+          } else if (loadedBudget.entries.length === 0 && driveRes.budget.entries.length > 0) {
+            // Local is empty, Drive has data: confirm before restoring
+            setConfirmationModal({
+              isOpen: true,
+              title: `Restore ${year} Budget from Google Drive?`,
+              description: `Found a Google Drive cloud backup for ${year} with ${driveRes.budget.entries.length} entries. Would you like to load it into your local storage?`,
+              affectedItems: [getBudgetFileName(year)],
+              confirmLabel: 'Load from Google Drive',
+              onConfirm: async () => {
+                FinanceStorageService.saveLocalBudget(driveRes.budget);
+                setBudget(driveRes.budget);
+                showToast(`Loaded ${year} budget from Google Drive`, 'success');
+                setConfirmationModal((m) => ({ ...m, isOpen: false }));
+              },
+            });
+          } else {
+            // Drive has differences: prompt before overwriting local!
+            setConfirmationModal({
+              isOpen: true,
+              title: `Google Drive Version Available for ${year}`,
+              description: `Google Drive has a cloud version of ${year} budget (${driveRes.budget.entries.length} entries). Overwrite your current local data?`,
+              affectedItems: [getBudgetFileName(year)],
+              confirmLabel: 'Overwrite Local with Drive',
+              isDestructive: true,
+              onConfirm: async () => {
+                FinanceStorageService.saveLocalBudget(driveRes.budget);
+                setBudget(driveRes.budget);
+                showToast(`Loaded ${year} budget from Google Drive`, 'success');
+                setConfirmationModal((m) => ({ ...m, isOpen: false }));
+              },
+            });
+          }
         }
       } catch (err) {
-        console.warn('Could not pull year from Drive:', err);
+        console.warn('Could not check year from Drive:', err);
       }
     }
   };
@@ -525,7 +760,7 @@ export default function App() {
       }
     });
     setLedger({ ...updatedLedger });
-    showToast(`Added ${newEntries.length} items with pre-populated estimates to period`);
+    showToast(`Added ${newEntries.length} items with estimated amounts to period`);
   };
 
   // Reset all data for live production
@@ -703,6 +938,18 @@ export default function App() {
         onCancel={() => setConfirmationModal((m) => ({ ...m, isOpen: false }))}
       />
 
+      {/* Drive Reconnection Conflict / Overwrite Prevention Modal */}
+      <DriveConflictModal
+        isOpen={conflictModalState.isOpen}
+        onClose={handleKeepAllLocal}
+        userEmail={driveStatus.userEmail}
+        items={conflictModalState.items}
+        onKeepAllLocal={handleKeepAllLocal}
+        onPushAllLocalToDrive={handlePushAllLocalToDrive}
+        onOverwriteAllWithDrive={handleOverwriteAllWithDrive}
+        isLoading={driveStatus.isSyncing}
+      />
+
       {/* Main Header */}
       <Header
         currentYear={currentYear}
@@ -727,7 +974,6 @@ export default function App() {
             budget={budget}
             ledger={ledger}
             frequency={frequency}
-            onOpenAddEntry={() => setActiveTab('budget')}
             onNavigateToSavings={() => setActiveTab('savings')}
             onNavigateToBudget={() => setActiveTab('budget')}
             onNavigateToDrive={() => setActiveTab('drive')}
@@ -771,15 +1017,76 @@ export default function App() {
             driveFiles={driveFiles}
             onSignIn={handleSignInWithGoogle}
             onSyncAll={triggerSyncAll}
-            onPullBudget={(yr) => handleSelectYear(yr)}
+            onPullBudget={async (yr) => {
+              const token = await getAccessToken();
+              if (!token) return;
+              try {
+                const driveRes = await FinanceStorageService.fetchBudgetFromDrive(token, yr);
+                if (!driveRes) {
+                  showToast(`No file found in Drive for year ${yr}`, 'info');
+                  return;
+                }
+                const currentLocal = FinanceStorageService.loadLocalBudget(yr);
+                const status = FinanceStorageService.compareTimestamps(
+                  currentLocal.lastUpdated,
+                  driveRes.budget.lastUpdated || driveRes.file.modifiedTime
+                );
+                const localIsNewer = status === 'local_newer' && currentLocal.entries.length > 0;
+
+                setConfirmationModal({
+                  isOpen: true,
+                  title: `Overwrite Local ${yr} Budget with Google Drive?`,
+                  description: localIsNewer
+                    ? `Warning: Your local ${yr} budget has NEWER edits than Google Drive. Overwriting will permanently discard your local changes in favor of the Drive cloud version (${driveRes.budget.entries.length} entries).`
+                    : `Load ${yr} budget from Google Drive (${driveRes.budget.entries.length} entries)? This will replace your local device copy.`,
+                  affectedItems: [getBudgetFileName(yr)],
+                  confirmLabel: 'Yes, Overwrite Local',
+                  isDestructive: localIsNewer,
+                  onConfirm: async () => {
+                    FinanceStorageService.saveLocalBudget(driveRes.budget);
+                    setBudget(driveRes.budget);
+                    showToast(`Updated ${yr} budget from Google Drive`, 'success');
+                    setConfirmationModal((m) => ({ ...m, isOpen: false }));
+                  },
+                });
+              } catch (err: any) {
+                showToast(`Failed to pull from Drive: ${err.message}`, 'error');
+              }
+            }}
             onPullLedger={async () => {
               const token = await getAccessToken();
-              if (token) {
-                const res = await FinanceStorageService.pullLedgerFromDrive(token);
-                if (res) {
-                  setLedger(res.ledger);
-                  showToast('Updated ledger from Google Drive');
+              if (!token) return;
+              try {
+                const driveRes = await FinanceStorageService.fetchLedgerFromDrive(token);
+                if (!driveRes) {
+                  showToast('No savings ledger file found in Drive', 'info');
+                  return;
                 }
+                const currentLocalLedger = FinanceStorageService.loadLocalSavingsLedger();
+                const status = FinanceStorageService.compareTimestamps(
+                  currentLocalLedger.lastUpdated,
+                  driveRes.ledger.lastUpdated || driveRes.file.modifiedTime
+                );
+                const localIsNewer = status === 'local_newer' && currentLocalLedger.transactions.length > 0;
+
+                setConfirmationModal({
+                  isOpen: true,
+                  title: 'Overwrite Local Savings Ledger with Google Drive?',
+                  description: localIsNewer
+                    ? `Warning: Your local savings ledger has NEWER edits than Google Drive. Overwriting will replace your local transactions (${currentLocalLedger.transactions.length}) with the cloud copy (${driveRes.ledger.transactions.length}).`
+                    : `Load savings ledger from Google Drive (${driveRes.ledger.transactions.length} transactions)? This will replace your local device copy.`,
+                  affectedItems: [SAVINGS_LEDGER_FILE_NAME],
+                  confirmLabel: 'Yes, Overwrite Local',
+                  isDestructive: localIsNewer,
+                  onConfirm: async () => {
+                    FinanceStorageService.saveLocalSavingsLedger(driveRes.ledger);
+                    setLedger(driveRes.ledger);
+                    showToast('Updated savings ledger from Google Drive', 'success');
+                    setConfirmationModal((m) => ({ ...m, isOpen: false }));
+                  },
+                });
+              } catch (err: any) {
+                showToast(`Failed to pull ledger: ${err.message}`, 'error');
               }
             }}
             onSaveBudgetToDrive={triggerSaveBudgetToDrive}

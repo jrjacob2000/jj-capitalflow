@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Calendar,
   Sparkles,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { YearBudgetData, SavingsLedgerData, EntryFrequency, EntryType } from '../types/finance';
 import { CashflowChart } from './charts/CashflowChart';
@@ -22,7 +23,7 @@ interface DashboardViewProps {
   budget: YearBudgetData;
   ledger: SavingsLedgerData;
   frequency: EntryFrequency;
-  onOpenAddEntry: (type?: EntryType) => void;
+  onOpenAddEntry?: (type?: EntryType) => void;
   onNavigateToSavings: () => void;
   onNavigateToBudget: () => void;
   onNavigateToDrive: () => void;
@@ -33,7 +34,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   budget,
   ledger,
   frequency,
-  onOpenAddEntry,
   onNavigateToSavings,
   onNavigateToBudget,
   onNavigateToDrive,
@@ -96,21 +96,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={() => onOpenAddEntry()}
+              onClick={onNavigateToBudget}
               className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-xs rounded-xl shadow-lg shadow-emerald-500/30 transition-all flex items-center gap-2 cursor-pointer"
             >
-              <PlusCircle className="w-4 h-4" />
-              <span>Add Transaction</span>
-            </button>
-            <button
-              onClick={onNavigateToBudget}
-              className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white font-medium text-xs rounded-xl backdrop-blur-xs border border-white/15 transition-all cursor-pointer"
-            >
-              View Budget Table
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>View Budget Sheet</span>
             </button>
             <button
               onClick={onNavigateToSavings}
-              className="px-4 py-2.5 bg-indigo-500/30 hover:bg-indigo-500/40 text-indigo-100 font-medium text-xs rounded-xl border border-indigo-400/30 transition-all flex items-center gap-1.5 cursor-pointer"
+              className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white font-medium text-xs rounded-xl backdrop-blur-xs border border-white/15 transition-all flex items-center gap-2 cursor-pointer"
             >
               <PiggyBank className="w-4 h-4 text-emerald-300" />
               <span>Savings Ledger</span>

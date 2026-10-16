@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Plus,
   Trash2,
@@ -59,7 +59,7 @@ export interface SheetRowItem {
   paymentMethod: PaymentMethod;
   paymentBreakdown?: BudgetEntry['paymentBreakdown'];
   difference: number;
-  status: 'Paid' | 'Pending' | 'Scheduled' | 'Estimated';
+  status: 'Paid' | 'Pending' | 'Scheduled';
   reference?: string;
   date: string;
   toBeWithdrawn: boolean;
@@ -159,6 +159,14 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
 
 
 
+  const currentMonthName = MONTH_NAMES[new Date().getMonth()] || 'Jan';
+  const currentBiWeeklyPeriod = `${currentMonthName}-${new Date().getDate() <= 15 ? 'P1' : 'P2'}`;
+
+  // Keep modalPeriod in sync when selectedPeriod changes
+  useEffect(() => {
+    setModalPeriod(selectedPeriod);
+  }, [selectedPeriod]);
+
   // Period lists
   const periodList =
     frequency === 'monthly' ? MONTH_NAMES : BIWEEKLY_PERIODS.map((p) => p.id);
@@ -220,7 +228,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
           expenseRows.push(row);
         }
       } else {
-        // Not yet recorded: Sheet is already pre-populated with the estimate!
+        // Not yet recorded: Sheet is initialized with the estimate
         const est = tpl.defaultEstimatedCost || 0;
         const repDate = new Date().toISOString().split('T')[0].replace(/^\d{4}/, String(budget.year));
 
@@ -236,8 +244,8 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
           hasActualCost: false,
           paymentMethod: tpl.defaultPaymentMethod || 'Bank Transfer',
           difference: tpl.type === 'income' ? -est : est,
-          status: 'Estimated',
-          reference: 'Pre-populated estimate',
+          status: 'Pending',
+          reference: '',
           date: repDate,
           toBeWithdrawn: Boolean(tpl.toBeWithdrawn),
         };
@@ -312,6 +320,15 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
   // Extra / Remaining Salary
   const remainingExtra = totalIncomeActual - totalExpenseActual;
   const remainingExtraEstimated = totalIncomeEstimated - totalExpenseEstimated;
+
+  const hasAnyIncomeRecorded = useMemo(
+    () => unifiedIncomeRows.some((r) => r.hasActualCost),
+    [unifiedIncomeRows]
+  );
+  const hasAnyExpenseRecorded = useMemo(
+    () => unifiedExpenseRows.some((r) => r.hasActualCost),
+    [unifiedExpenseRows]
+  );
 
   // Helpers
   const formatNumber = (num: number) =>
@@ -398,8 +415,10 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
       .filter((t) => t.type === 'expense' || t.type === 'saving')
       .reduce((sum, t) => sum + t.defaultEstimatedCost, 0);
 
-    const currRemaining = (incAct > 0 ? incAct : incEst) - expAct;
-    const actInput = parseFloat(formActual) || parseFloat(formEstimated) || 0;
+    const hasRecordedIncome = entriesInModalPeriod.some((e) => e.type === 'income');
+    const currRemaining = (hasRecordedIncome ? incAct : incEst) - expAct;
+    const hasActualInput = formActual.trim() !== '' && !isNaN(parseFloat(formActual));
+    const actInput = hasActualInput ? parseFloat(formActual) : (parseFloat(formEstimated) || 0);
 
     let origAct = 0;
     if (editingEntryId) {
@@ -409,7 +428,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
       }
     }
 
-    let projectedIncome = incAct > 0 ? incAct : incEst;
+    let projectedIncome = hasRecordedIncome ? incAct : incEst;
     let projectedExpense = expAct;
 
     if (modalType === 'income') {
@@ -457,12 +476,12 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
     if (row.hasActualCost && !row.isVirtualEstimate) {
       setEditingEntryId(row.id);
       setFormActual(String(row.actualCost));
-      setFormStatus(row.status === 'Estimated' ? 'Paid' : (row.status as any));
+      setFormStatus(row.status || 'Paid');
       setFormReference(row.reference || '');
     } else {
       setEditingEntryId(null);
-      // Actual is ready for input, pre-filling with estimated cost for instant confirmation or adjustment
-      setFormActual(est > 0 ? String(est) : '');
+      // Actual is ready for input, empty by default so entering 0 or actual cost is clean and direct
+      setFormActual('');
       setFormStatus('Paid');
       setFormReference('');
     }
@@ -475,7 +494,6 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
   };
 
   // Open modal for new entry button (+ Income, + Expense, + Saving)
-  // THE ESTIMATE TEXT IS ALREADY POPULATED!
   const handleOpenAdd = (type: 'income' | 'expense' | 'saving') => {
     setEditingEntryId(null);
     setModalPeriod(selectedPeriod);
@@ -486,9 +504,8 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
       setSelectedTemplateId(firstTpl.id);
       setFormCategory(firstTpl.category);
       setFormItem(firstTpl.item);
-      // Pre-populate estimate text!
       setFormEstimated(String(firstTpl.defaultEstimatedCost || ''));
-      setFormActual(firstTpl.defaultEstimatedCost > 0 ? String(firstTpl.defaultEstimatedCost) : '');
+      setFormActual('');
       if (firstTpl.defaultPaymentMethod) {
         setFormPaymentMethod(firstTpl.defaultPaymentMethod);
       }
@@ -515,7 +532,6 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
   };
 
   // When template is selected in modal:
-  // THE ESTIMATE TEXT IS ALREADY POPULATED!
   const handleSelectTemplate = (templateId: string) => {
     setSelectedTemplateId(templateId);
     if (!templateId) return;
@@ -526,9 +542,10 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
     setModalType(tpl.type);
     setFormCategory(tpl.category);
     setFormItem(tpl.item);
-    // In entry modal the estimate text should already populated if it has an estimate amount
     setFormEstimated(String(tpl.defaultEstimatedCost || ''));
-    setFormActual(String(tpl.defaultEstimatedCost || ''));
+    if (!formActual) {
+      setFormActual('');
+    }
     if (tpl.defaultPaymentMethod) {
       setFormPaymentMethod(tpl.defaultPaymentMethod);
     }
@@ -541,9 +558,6 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
     const est = getEstimateForItem(newItemName, formCategory, modalType);
     if (est > 0) {
       setFormEstimated(String(est));
-      if (!formActual) {
-        setFormActual(String(est));
-      }
     }
     const tpl = itemTemplates.find(
       (t) => t.item.toLowerCase() === newItemName.trim().toLowerCase()
@@ -562,7 +576,6 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
     const est = getEstimateForItem(formItem, newCat, modalType);
     if (est > 0 && (!formEstimated || formEstimated === '0')) {
       setFormEstimated(String(est));
-      if (!formActual) setFormActual(String(est));
     }
   };
 
@@ -570,15 +583,19 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
   const handleSubmitForm = (e: React.FormEvent) => {
     e.preventDefault();
     const estNum = parseFloat(formEstimated) || 0;
-    const actNum = parseFloat(formActual) || estNum;
+    // 0 is explicitly accepted as actual value!
+    const actNum =
+      formActual.trim() !== '' && !isNaN(parseFloat(formActual))
+        ? parseFloat(formActual)
+        : 0;
     const diff = modalType === 'income' ? actNum - estNum : estNum - actNum;
 
     let periodIndex = 0;
     if (frequency === 'monthly') {
       periodIndex = Math.max(0, MONTH_NAMES.indexOf(modalPeriod));
     } else {
-      const match = modalPeriod.match(/\d+/);
-      periodIndex = match ? parseInt(match[0], 10) - 1 : 0;
+      const bwIdx = BIWEEKLY_PERIODS.findIndex((p) => p.id === modalPeriod);
+      periodIndex = bwIdx >= 0 ? bwIdx : 0;
     }
 
     const selectedAcc = accounts.find((a) => a.id === formSavingAccountId);
@@ -624,34 +641,35 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
     setIsAddModalOpen(false);
   };
 
-  // Export current period as CSV
+  // Export current period as CSV (clean numbers with no currency symbol for easy spreadsheet analysis)
   const handleExportCSV = () => {
+    const formatCsvNum = (num: number | undefined | null): string => {
+      if (num === undefined || num === null || isNaN(num)) return '0.00';
+      return Number(num).toFixed(2);
+    };
+
     const lines: string[] = [];
-    lines.push(`,,${frequency === 'monthly' ? 'Monthly' : 'Bi-Weekly'},,,,,,,,,,,,,,,,,,,`);
-    lines.push(`,,Period,"${selectedPeriod}, ${budget.year}",,,,,,,,,,,,,,,,,,`);
-    lines.push(',,,,,,,,,,,,,,,,,,,,,');
-    lines.push(',,Income,,,,,,,,,,,,,,,,,,,');
-    lines.push(',,,Estimated,Actual,,,,,,,,Difference,,,,,,,,,');
+    lines.push(`Period,${selectedPeriod} (${budget.year}),Frequency,${frequency === 'monthly' ? 'Monthly' : 'Bi-Weekly'}`);
+    lines.push('');
+    lines.push('--- INCOME ---');
+    lines.push('Income Source,Estimated,Actual Recorded,Difference');
 
     unifiedIncomeRows.forEach((inc) => {
       const est = inc.estimatedCost || 0;
       const act = inc.actualCost || 0;
       const diff = act - est;
       lines.push(
-        `,,${inc.item},"${currencySymbol}${formatNumber(est)}","${currencySymbol}${formatNumber(act)}",,,,,,,,"${currencySymbol}${formatNumber(diff)}",,,,,,,,,`
+        `"${inc.item.replace(/"/g, '""')}",${formatCsvNum(est)},${formatCsvNum(act)},${formatCsvNum(diff)}`
       );
     });
 
     lines.push(
-      `,,Total Income,"${currencySymbol}${formatNumber(totalIncomeEstimated)}","${currencySymbol}${formatNumber(totalIncomeActual)}",,,,,,,,"${currencySymbol}${formatNumber(incomeDifference)}",,,,,,,,,`
+      `Total Income,${formatCsvNum(totalIncomeEstimated)},${formatCsvNum(totalIncomeActual)},${formatCsvNum(incomeDifference)}`
     );
-    lines.push(',,,,,,,,,,,,,,,,,,,,,');
-    lines.push(',,Monthly Expenses,,,,,,,,,,,,,,,,,,,');
+    lines.push('');
+    lines.push('--- EXPENSES & OUTFLOWS ---');
     lines.push(
-      ',Category,Item,,Actual Cost,,,,,,,,Difference,Status,Reference,Date,,,,,,'
-    );
-    lines.push(
-      ',,,Estimated Cost,Actual Cost,Stay in ATM,Cash,Credit Card,GCash Transfer,Kath Account,Check Account,Bank Transfer,,,,,,,,,,'
+      'Category,Item,Estimated Cost,Actual Cost,Stay in ATM,Cash,Credit Card,GCash Transfer,Kath Account,Checking Account,Bank Transfer,Difference,Status,Reference,Date'
     );
 
     unifiedExpenseRows.forEach((exp) => {
@@ -667,20 +685,17 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
       const diff = est - act;
 
       lines.push(
-        `,${exp.category},${exp.item},"${currencySymbol}${formatNumber(est)}","${currencySymbol}${formatNumber(act)}",${atm ? `"${currencySymbol}${formatNumber(atm)}"` : ''},${cash ? `"${currencySymbol}${formatNumber(cash)}"` : ''},${cc ? `"${currencySymbol}${formatNumber(cc)}"` : ''},${gcash ? `"${currencySymbol}${formatNumber(gcash)}"` : ''},${kath ? `"${currencySymbol}${formatNumber(kath)}"` : ''},${chk ? `"${currencySymbol}${formatNumber(chk)}"` : ''},${bank ? `"${currencySymbol}${formatNumber(bank)}"` : ''},"${currencySymbol}${formatNumber(diff)}",${exp.status || 'Paid'},${exp.reference || ''},${exp.date},,,,,,`
+        `"${exp.category.replace(/"/g, '""')}","${exp.item.replace(/"/g, '""')}",${formatCsvNum(est)},${formatCsvNum(act)},${atm ? formatCsvNum(atm) : '0.00'},${cash ? formatCsvNum(cash) : '0.00'},${cc ? formatCsvNum(cc) : '0.00'},${gcash ? formatCsvNum(gcash) : '0.00'},${kath ? formatCsvNum(kath) : '0.00'},${chk ? formatCsvNum(chk) : '0.00'},${bank ? formatCsvNum(bank) : '0.00'},${formatCsvNum(diff)},"${exp.status || 'Paid'}","${(exp.reference || '').replace(/"/g, '""')}",${exp.date}`
       );
     });
 
-    lines.push(',,Expenses Total Summary,,,,,,,,,,,,,,,,,,,');
+    lines.push('');
+    lines.push('--- EXPENSES TOTAL SUMMARY ---');
     lines.push(
-      `,,Total Expense,"${currencySymbol}${formatNumber(totalExpenseEstimated)}","${currencySymbol}${formatNumber(totalExpenseActual)}","${currencySymbol}${formatNumber(paymentTotals['Stay in ATM'] || 0)}","${currencySymbol}${formatNumber(paymentTotals.Cash || 0)}","${currencySymbol}${formatNumber(paymentTotals['Credit Card'] || 0)}","${currencySymbol}${formatNumber(paymentTotals['GCash Transfer'] || 0)}","${currencySymbol}${formatNumber(paymentTotals['Kath Account'] || 0)}","${currencySymbol}${formatNumber(paymentTotals['Checking Account'] || 0)}","${currencySymbol}${formatNumber(paymentTotals['Bank Transfer'] || 0)}","${currencySymbol}${formatNumber(expenseDifference)}",,,,,,,,,`
+      `Total Expense,${formatCsvNum(totalExpenseEstimated)},${formatCsvNum(totalExpenseActual)},${formatCsvNum(paymentTotals['Stay in ATM'] || 0)},${formatCsvNum(paymentTotals.Cash || 0)},${formatCsvNum(paymentTotals['Credit Card'] || 0)},${formatCsvNum(paymentTotals['GCash Transfer'] || 0)},${formatCsvNum(paymentTotals['Kath Account'] || 0)},${formatCsvNum(paymentTotals['Checking Account'] || 0)},${formatCsvNum(paymentTotals['Bank Transfer'] || 0)},${formatCsvNum(expenseDifference)}`
     );
-    lines.push(
-      `,,Income,,"${currencySymbol}${formatNumber(totalIncomeActual)}",,,,,,,,,,,,,,,,,`
-    );
-    lines.push(
-      `,,Extra / Remaining Salary,,"${currencySymbol}${formatNumber(remainingExtra)}",,,,,,,,,,,,,,,,,`
-    );
+    lines.push(`Total Income Recorded,,${formatCsvNum(totalIncomeActual)}`);
+    lines.push(`Extra / Remaining Salary,,${formatCsvNum(remainingExtra)}`);
 
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -697,8 +712,8 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
       
       {/* Top Controls Toolbar */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs">
+        {/* Row 1: Title & Actions */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          
           <div className="flex items-start sm:items-center gap-3 min-w-0">
             <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 shrink-0">
               <FileSpreadsheet className="w-5 h-5" />
@@ -713,40 +728,23 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                 </span>
                 <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold whitespace-nowrap shrink-0 leading-none">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                  Pre-populated with Estimates
+                  Estimates Active
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                All monthly estimates are pre-populated on the sheet. Click any line item to record the actual amount.
+                Estimates are loaded on the sheet. Click any line item to record the actual amount.
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Period selector pills */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs overflow-x-auto max-w-[280px] sm:max-w-none scrollbar-none">
-              {periodList.map((p) => (
-                <button
-                  key={p}
-                  onClick={() => onSelectPeriod(p)}
-                  className={`px-3 py-1 rounded-lg font-medium transition-all shrink-0 ${
-                    selectedPeriod === p
-                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-2xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-
-            {/* Quick Action Buttons */}
+          {/* Quick Action Buttons */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               onClick={() => handleOpenAdd('income')}
               className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>+ Income</span>
+              <span>Income</span>
             </button>
 
             <button
@@ -754,7 +752,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
               className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>+ Expense</span>
+              <span>Expense</span>
             </button>
 
             <button
@@ -763,30 +761,85 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
               title="Add saving entry to accumulate in separate savings ledger"
             >
               <PiggyBank className="w-3.5 h-3.5" />
-              <span>+ Saving</span>
+              <span>Saving</span>
             </button>
 
-            {/* Manage Estimates & Categories Button */}
             <button
               onClick={() => setIsManagerModalOpen(true)}
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
               title="Manage monthly estimated budgets and expense, income, and saving categories"
             >
               <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
-              <span>Manage Estimates &amp; Categories</span>
+              <span className="hidden sm:inline">Estimates &amp; Categories</span>
             </button>
 
-            {/* Export CSV Button */}
             <button
               onClick={handleExportCSV}
               className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition-colors cursor-pointer"
-              title="Download CSV formatted exactly like your spreadsheet"
+              title="Download CSV without currency symbols for easy spreadsheet analysis"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>CSV</span>
+              <span>Export CSV</span>
             </button>
           </div>
+        </div>
 
+        {/* Row 2: Dedicated Period Navigator Bar */}
+        <div className="mt-4 pt-3.5 border-t border-slate-100 dark:border-slate-800 flex flex-col md:flex-row md:items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold">
+              <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Period:</span>
+            </div>
+
+            {/* Mode Switcher: Monthly vs Bi-Weekly */}
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  onChangeFrequency('monthly');
+                  onSelectPeriod(currentMonthName);
+                }}
+                className={`px-2.5 py-1 rounded-lg transition-all ${
+                  frequency === 'monthly'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-300'
+                }`}
+              >
+                Monthly (12)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onChangeFrequency('bi-weekly');
+                  onSelectPeriod(`${currentMonthName}-P1`);
+                }}
+                className={`px-2.5 py-1 rounded-lg transition-all ${
+                  frequency === 'bi-weekly'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-300'
+                }`}
+              >
+                Bi-Weekly (26)
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/90 p-1 rounded-xl text-xs overflow-x-auto min-w-0 w-full scrollbar-thin">
+            {periodList.map((p) => (
+              <button
+                key={p}
+                onClick={() => onSelectPeriod(p)}
+                className={`px-3 py-1.5 rounded-lg font-semibold transition-all shrink-0 ${
+                  selectedPeriod === p
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-700/60'
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -800,13 +853,13 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
             <TrendingUp className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
-            {currencySymbol}{formatNumber(totalIncomeActual > 0 ? totalIncomeActual : totalIncomeEstimated)}
-            {totalIncomeActual === 0 && <span className="text-xs text-slate-400 ml-1 font-normal">(Est)</span>}
+            {currencySymbol}{formatNumber(hasAnyIncomeRecorded ? totalIncomeActual : totalIncomeEstimated)}
+            {!hasAnyIncomeRecorded && <span className="text-xs text-slate-400 ml-1 font-normal">(Est)</span>}
           </div>
           <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1">
-            <span>Pre-populated Est: {currencySymbol}{formatNumber(totalIncomeEstimated)}</span>
-            <span className={incomeDifference >= 0 ? 'text-emerald-600 font-semibold' : 'text-slate-400 font-semibold'}>
-              Actual: {currencySymbol}{formatNumber(totalIncomeActual)}
+            <span>Estimated: {currencySymbol}{formatNumber(totalIncomeEstimated)}</span>
+            <span className={hasAnyIncomeRecorded ? 'text-emerald-600 font-semibold' : 'text-slate-400 font-semibold'}>
+              Actual: {hasAnyIncomeRecorded ? `${currencySymbol}${formatNumber(totalIncomeActual)}` : '—'}
             </span>
           </div>
         </div>
@@ -818,13 +871,13 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
             <Receipt className="w-4 h-4 text-rose-500" />
           </div>
           <div className="text-xl font-bold font-mono text-rose-600 dark:text-rose-400">
-            {currencySymbol}{formatNumber(totalExpenseActual > 0 ? totalExpenseActual : totalExpenseEstimated)}
-            {totalExpenseActual === 0 && <span className="text-xs text-slate-400 ml-1 font-normal">(Est)</span>}
+            {currencySymbol}{formatNumber(hasAnyExpenseRecorded ? totalExpenseActual : totalExpenseEstimated)}
+            {!hasAnyExpenseRecorded && <span className="text-xs text-slate-400 ml-1 font-normal">(Est)</span>}
           </div>
           <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1">
-            <span>Pre-populated Est: {currencySymbol}{formatNumber(totalExpenseEstimated)}</span>
-            <span className={totalExpenseActual > 0 ? 'text-slate-700 dark:text-slate-300 font-semibold' : 'text-slate-400'}>
-              Actual: {currencySymbol}{formatNumber(totalExpenseActual)}
+            <span>Estimated: {currencySymbol}{formatNumber(totalExpenseEstimated)}</span>
+            <span className={hasAnyExpenseRecorded ? 'text-slate-700 dark:text-slate-300 font-semibold' : 'text-slate-400'}>
+              Actual: {hasAnyExpenseRecorded ? `${currencySymbol}${formatNumber(totalExpenseActual)}` : '—'}
             </span>
           </div>
         </div>
@@ -836,12 +889,12 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
             <Sparkles className="w-4 h-4 text-amber-300" />
           </div>
           <div className="text-xl font-black font-mono">
-            {currencySymbol}{formatNumber(totalIncomeActual > 0 ? remainingExtra : remainingExtraEstimated)}
+            {currencySymbol}{formatNumber(hasAnyIncomeRecorded || hasAnyExpenseRecorded ? remainingExtra : remainingExtraEstimated)}
           </div>
           <div className="flex items-center justify-between text-[11px] text-emerald-100 mt-1 font-medium">
-            <span>Est Remaining: {currencySymbol}{formatNumber(remainingExtraEstimated)}</span>
+            <span>Estimated Remaining: {currencySymbol}{formatNumber(remainingExtraEstimated)}</span>
             <span className="px-2 py-0.5 rounded-full bg-white/20 text-[10px] font-bold">
-              {(totalIncomeActual > 0 ? remainingExtra : remainingExtraEstimated) >= 0 ? 'Safe Surplus' : 'Deficit'}
+              {(hasAnyIncomeRecorded || hasAnyExpenseRecorded ? remainingExtra : remainingExtraEstimated) >= 0 ? 'Safe Surplus' : 'Deficit'}
             </span>
           </div>
         </div>
@@ -859,7 +912,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                   Income Sources ({selectedPeriod})
                 </span>
                 <span className="text-[10px] text-slate-500 font-mono bg-emerald-50 dark:bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-                  {unifiedIncomeRows.length} pre-populated items
+                  {unifiedIncomeRows.length} items
                 </span>
               </div>
               <button
@@ -867,21 +920,31 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                 className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold flex items-center gap-1 cursor-pointer"
               >
                 <Plus className="w-3 h-3" />
-                <span>+ Custom Income</span>
+                <span>Custom Income</span>
               </button>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs font-mono">
-                <thead className="bg-slate-100/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-sans font-semibold border-b border-slate-200 dark:border-slate-800">
+            <div className="overflow-x-auto scrollbar-thin">
+              <table className="w-full text-left text-xs font-mono border-separate border-spacing-0 whitespace-nowrap">
+                <thead className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-sans font-semibold border-b border-slate-200 dark:border-slate-800">
                   <tr>
-                    <th className="py-2.5 px-4 font-semibold">Income Source</th>
-                    <th className="py-2.5 px-4 text-right bg-emerald-50/40 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300">
-                      Estimated (Pre-populated)
+                    {/* Column 1: Income Source (unfrozen) */}
+                    <th className="py-2.5 px-3 min-w-[170px] font-semibold border-b border-r border-slate-200 dark:border-slate-700 truncate">
+                      Income Source
                     </th>
-                    <th className="py-2.5 px-4 text-right">Actual Recorded</th>
-                    <th className="py-2.5 px-4 text-right">Difference</th>
-                    <th className="py-2.5 px-3 text-center">Action</th>
+                    <th className="py-2.5 px-4 text-right bg-emerald-50/40 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300 border-b border-r border-slate-200 dark:border-slate-700">
+                      Estimated Cost
+                    </th>
+                    <th className="py-2.5 px-4 text-right border-b border-r border-slate-200 dark:border-slate-700">Actual Recorded</th>
+                    <th className="py-2.5 px-4 text-right border-b border-r border-slate-200 dark:border-slate-700">Difference</th>
+                    {/* Frozen Right Column: Status */}
+                    <th className="sticky right-[64px] z-20 w-[88px] min-w-[88px] max-w-[88px] bg-slate-100 dark:bg-slate-800 py-2.5 px-1.5 text-center border-b border-l-2 border-slate-300 dark:border-slate-600 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.12)] font-sans">
+                      Status
+                    </th>
+                    {/* Frozen Right Column: Action */}
+                    <th className="sticky right-0 z-20 w-[64px] min-w-[64px] max-w-[64px] bg-slate-100 dark:bg-slate-800 py-2.5 px-1 text-center font-sans border-b border-l border-slate-200 dark:border-slate-700">
+                      Action
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -896,20 +959,16 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                         onClick={() => handleOpenRow(inc)}
                         className="hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 transition-colors cursor-pointer group"
                       >
-                        <td className="py-2.5 px-4 font-sans font-medium text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                          <span>{inc.item}</span>
-                          {inc.isVirtualEstimate && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-semibold border border-emerald-200 dark:border-emerald-800">
-                              Estimated
-                            </span>
-                          )}
+                        {/* Column 1: Income Source (unfrozen) */}
+                        <td className="py-2.5 px-3 min-w-[170px] font-sans font-medium text-slate-800 dark:text-slate-200 border-b border-r border-slate-100 dark:border-slate-800 truncate">
+                          <div className="truncate">{inc.item}</div>
                         </td>
-                        {/* PRE-POPULATED ESTIMATE COLUMN */}
-                        <td className="py-2.5 px-4 text-right font-bold text-slate-800 dark:text-slate-200 bg-emerald-50/20 dark:bg-emerald-950/10">
+                        {/* ESTIMATE COLUMN */}
+                        <td className="py-2.5 px-4 text-right font-bold text-slate-800 dark:text-slate-200 bg-emerald-50/20 dark:bg-emerald-950/10 border-b border-r border-slate-100 dark:border-slate-800">
                           {currencySymbol}{formatNumber(est)}
                         </td>
                         {/* ACTUAL COLUMN */}
-                        <td className="py-2.5 px-4 text-right">
+                        <td className="py-2.5 px-4 text-right border-b border-r border-slate-100 dark:border-slate-800">
                           {inc.hasActualCost ? (
                             <span className="font-bold text-emerald-600 dark:text-emerald-400">
                               {currencySymbol}{formatNumber(act)}
@@ -921,7 +980,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                           )}
                         </td>
                         {/* DIFFERENCE */}
-                        <td className="py-2.5 px-4 text-right">
+                        <td className="py-2.5 px-4 text-right border-b border-r border-slate-100 dark:border-slate-800">
                           {inc.hasActualCost ? (
                             <span
                               className={
@@ -940,8 +999,21 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                             <span className="text-slate-400 text-[10px]">Pending</span>
                           )}
                         </td>
-                        {/* ACTION */}
-                        <td className="py-2.5 px-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        {/* Frozen Right Column: Status */}
+                        <td className="sticky right-[64px] z-10 w-[88px] min-w-[88px] max-w-[88px] bg-white dark:bg-slate-900 group-hover:bg-emerald-50/50 py-2.5 px-1.5 text-center font-sans border-b border-l-2 border-slate-300 dark:border-slate-600 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.12)]">
+                          {inc.hasActualCost ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                              <CheckCircle2 className="w-2.5 h-2.5" />
+                              Received
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                              Estimated
+                            </span>
+                          )}
+                        </td>
+                        {/* Frozen Right Column: Action */}
+                        <td className="sticky right-0 z-10 w-[64px] min-w-[64px] max-w-[64px] bg-white dark:bg-slate-900 group-hover:bg-emerald-50/50 py-2.5 px-1 text-center whitespace-nowrap border-b border-l border-slate-200 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-center gap-1">
                             <button
                               onClick={() => handleOpenRow(inc)}
@@ -967,19 +1039,22 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
 
                   {/* Income Total Row */}
                   <tr className="bg-emerald-50/80 dark:bg-emerald-950/40 font-bold text-slate-900 dark:text-white border-t-2 border-emerald-500/30">
-                    <td className="py-3 px-4 font-sans">Total Income</td>
-                    <td className="py-3 px-4 text-right text-emerald-900 dark:text-emerald-200 font-mono text-sm">
+                    <td className="py-3 px-4 font-sans border-r border-emerald-200 dark:border-emerald-800">
+                      Total Income
+                    </td>
+                    <td className="py-3 px-4 text-right text-emerald-900 dark:text-emerald-200 font-mono text-sm border-r border-emerald-200 dark:border-emerald-800">
                       {currencySymbol}{formatNumber(totalIncomeEstimated)}
                     </td>
-                    <td className="py-3 px-4 text-right text-emerald-600 dark:text-emerald-400 font-mono text-sm">
+                    <td className="py-3 px-4 text-right text-emerald-600 dark:text-emerald-400 font-mono text-sm border-r border-emerald-200 dark:border-emerald-800">
                       {currencySymbol}{formatNumber(totalIncomeActual)}
                     </td>
-                    <td className="py-3 px-4 text-right text-slate-700 dark:text-slate-300">
+                    <td className="py-3 px-4 text-right text-slate-700 dark:text-slate-300 border-r border-emerald-200 dark:border-emerald-800">
                       {incomeDifference < 0
                         ? `(${currencySymbol}${formatNumber(Math.abs(incomeDifference))})`
                         : `${currencySymbol}${formatNumber(incomeDifference)}`}
                     </td>
-                    <td className="py-3 px-3"></td>
+                    <td className="sticky right-[64px] z-10 w-[88px] min-w-[88px] max-w-[88px] bg-emerald-50 dark:bg-emerald-950 border-l-2 border-emerald-300 dark:border-emerald-700 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.12)]"></td>
+                    <td className="sticky right-0 z-10 w-[64px] min-w-[64px] max-w-[64px] bg-emerald-50 dark:bg-emerald-950 border-l border-emerald-300 dark:border-emerald-700"></td>
                   </tr>
                 </tbody>
               </table>
@@ -991,10 +1066,12 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
             <div className="p-4 bg-slate-50/80 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-xs uppercase tracking-wider text-rose-700 dark:text-rose-400">
-                  Monthly Expenses &amp; Outflows ({selectedPeriod})
+                  {frequency === 'monthly'
+                    ? `Monthly Expenses & Outflows (${selectedPeriod})`
+                    : `Bi-Weekly Expenses & Outflows (${selectedPeriod})`}
                 </span>
                 <span className="text-[10px] text-slate-500 font-mono bg-rose-50 dark:bg-rose-950/80 px-2 py-0.5 rounded-full border border-rose-200 dark:border-rose-800">
-                  {unifiedExpenseRows.length} pre-populated lines
+                  {unifiedExpenseRows.length} lines
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -1003,51 +1080,73 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                   className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold flex items-center gap-1 cursor-pointer"
                 >
                   <Plus className="w-3 h-3" />
-                  <span>+ Custom Line Item</span>
+                  <span>Custom Line Item</span>
                 </button>
               </div>
             </div>
 
             <div className="overflow-x-auto scrollbar-thin">
-              <table className="w-full text-left text-[11px] font-mono border-collapse whitespace-nowrap">
+              <table className="w-full text-left text-[11px] font-mono border-separate border-spacing-0 whitespace-nowrap">
                 <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-sans font-semibold border-b border-slate-200 dark:border-slate-700">
                   <tr>
-                    <th className="py-2.5 px-3 border-r border-slate-200 dark:border-slate-700">Category</th>
-                    <th className="py-2.5 px-3 border-r border-slate-200 dark:border-slate-700">Item</th>
-                    <th className="py-2.5 px-3 text-right bg-amber-50/60 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 border-r border-slate-200 dark:border-slate-700">
-                      Estimated Cost (Pre-populated)
+                    {/* Column 1: Category (unfrozen) */}
+                    <th className="py-2.5 px-2.5 min-w-[95px] border-b border-r border-slate-200 dark:border-slate-700 truncate">
+                      Category
                     </th>
-                    <th className="py-2.5 px-3 text-right bg-rose-50/50 dark:bg-rose-950/20 font-bold border-r border-slate-200 dark:border-slate-700">
+
+                    {/* Column 2: Item (unfrozen) */}
+                    <th className="py-2.5 px-2.5 min-w-[140px] border-b border-r border-slate-200 dark:border-slate-700 truncate">
+                      Item
+                    </th>
+
+                    {/* Column 3: Estimated Cost */}
+                    <th className="py-2.5 px-3 text-right bg-amber-50/60 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 border-b border-r border-slate-200 dark:border-slate-700">
+                      Estimated Cost
+                    </th>
+
+                    {/* Column 4: Actual Cost */}
+                    <th className="py-2.5 px-3 text-right bg-rose-50/50 dark:bg-rose-950/20 font-bold border-b border-r border-slate-200 dark:border-slate-700">
                       Actual Cost
                     </th>
                     
-                    {/* Payment Breakdown Columns */}
-                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                    {/* Payment Breakdown Columns (5-11) */}
+                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-200 dark:border-slate-700">
                       Stay in ATM
                     </th>
-                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-200 dark:border-slate-700">
                       Cash
                     </th>
-                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-200 dark:border-slate-700">
                       Credit Card
                     </th>
-                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-200 dark:border-slate-700">
                       GCash Transfer
                     </th>
-                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-200 dark:border-slate-700">
                       Kath Account
                     </th>
-                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-200 dark:border-slate-700">
                       Check Account
                     </th>
-                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-200 dark:border-slate-700">
                       Bank Transfer
                     </th>
 
-                    <th className="py-2.5 px-3 text-right border-r border-slate-200 dark:border-slate-700">Difference</th>
-                    <th className="py-2.5 px-2 text-center border-r border-slate-200 dark:border-slate-700 font-sans">Status</th>
-                    <th className="py-2.5 px-3 border-r border-slate-200 dark:border-slate-700 font-sans">Reference</th>
-                    <th className="py-2.5 px-2 text-center font-sans">Action</th>
+                    {/* Column 12: Difference */}
+                    <th className="py-2.5 px-3 text-right border-b border-r border-slate-200 dark:border-slate-700">Difference</th>
+
+                    {/* Column 13: Reference */}
+                    <th className="py-2.5 px-3 border-b border-r border-slate-200 dark:border-slate-700 font-sans">Reference</th>
+
+                    {/* Frozen Right Column: Status */}
+                    <th className="sticky right-[64px] z-20 w-[88px] min-w-[88px] max-w-[88px] bg-slate-100 dark:bg-slate-800 py-2.5 px-1.5 text-center border-b border-l-2 border-slate-300 dark:border-slate-600 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.12)] font-sans">
+                      Status
+                    </th>
+
+                    {/* Frozen Right Column: Action */}
+                    <th className="sticky right-0 z-20 w-[64px] min-w-[64px] max-w-[64px] bg-slate-100 dark:bg-slate-800 py-2.5 px-1 text-center font-sans border-b border-l border-slate-200 dark:border-slate-700">
+                      Action
+                    </th>
                   </tr>
                 </thead>
 
@@ -1074,33 +1173,35 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                           isSaving ? 'bg-indigo-50/30 dark:bg-indigo-950/20' : ''
                         }`}
                       >
-                        <td className="py-2 px-3 font-sans font-medium text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-800">
-                          {isSaving && (
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-500 mr-1.5" />
-                          )}
-                          {exp.category}
+                        {/* Column 1: Category (unfrozen) */}
+                        <td className="py-2 px-2.5 min-w-[95px] font-sans font-medium text-slate-700 dark:text-slate-300 border-b border-r border-slate-100 dark:border-slate-800 truncate">
+                          <div className="truncate">
+                            {isSaving && (
+                              <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-500 mr-1" />
+                            )}
+                            {exp.category}
+                          </div>
                         </td>
 
-                        <td className="py-2 px-3 font-sans font-medium text-slate-900 dark:text-slate-100 border-r border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                          <span>{exp.item}</span>
-                          {isSaving ? (
-                            <span className="ml-1.5 px-1 py-0.2 rounded text-[9px] bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-semibold">
-                              &rarr; Ledger
-                            </span>
-                          ) : exp.isVirtualEstimate ? (
-                            <span className="ml-1 px-1.5 py-0.2 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-500 font-semibold">
-                              Estimate
-                            </span>
-                          ) : null}
+                        {/* Column 2: Item (unfrozen) */}
+                        <td className="py-2 px-2.5 min-w-[140px] font-sans font-medium text-slate-900 dark:text-slate-100 border-b border-r border-slate-100 dark:border-slate-800">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="truncate">{exp.item}</span>
+                            {isSaving && (
+                              <span className="px-1 py-0.2 rounded text-[9px] bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-semibold shrink-0">
+                                Ledger
+                              </span>
+                            )}
+                          </div>
                         </td>
 
-                        {/* ESTIMATED COST COLUMN - PRE-POPULATED! */}
-                        <td className="py-2 px-3 text-right font-bold text-slate-800 dark:text-slate-200 bg-amber-50/20 dark:bg-amber-950/10 border-r border-slate-100 dark:border-slate-800">
+                        {/* Column 3: Estimated Cost */}
+                        <td className="py-2 px-3 text-right font-bold text-slate-800 dark:text-slate-200 bg-amber-50/20 dark:bg-amber-950/10 border-b border-r border-slate-100 dark:border-slate-800">
                           {currencySymbol}{formatNumber(est)}
                         </td>
 
-                        {/* ACTUAL COST COLUMN */}
-                        <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-white bg-rose-50/20 dark:bg-rose-950/10 border-r border-slate-100 dark:border-slate-800">
+                        {/* Column 4: Actual Cost */}
+                        <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-white bg-rose-50/20 dark:bg-rose-950/10 border-b border-r border-slate-100 dark:border-slate-800">
                           {exp.hasActualCost ? (
                             `${currencySymbol}${formatNumber(act)}`
                           ) : (
@@ -1110,31 +1211,31 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                           )}
                         </td>
 
-                        {/* Payment breakdown cell values */}
-                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800">
+                        {/* Columns 5-11: Payment Breakdown */}
+                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-100 dark:border-slate-800">
                           {atm > 0 ? `${currencySymbol}${formatNumber(atm)}` : '—'}
                         </td>
-                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800">
+                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-100 dark:border-slate-800">
                           {cash > 0 ? `${currencySymbol}${formatNumber(cash)}` : '—'}
                         </td>
-                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800">
+                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-100 dark:border-slate-800">
                           {cc > 0 ? `${currencySymbol}${formatNumber(cc)}` : '—'}
                         </td>
-                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800">
+                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-100 dark:border-slate-800">
                           {gcash > 0 ? `${currencySymbol}${formatNumber(gcash)}` : '—'}
                         </td>
-                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800">
+                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-100 dark:border-slate-800">
                           {kath > 0 ? `${currencySymbol}${formatNumber(kath)}` : '—'}
                         </td>
-                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800">
+                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
                           {chk > 0 ? `${currencySymbol}${formatNumber(chk)}` : '—'}
                         </td>
-                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800">
+                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-100 dark:border-slate-800">
                           {bank > 0 ? `${currencySymbol}${formatNumber(bank)}` : '—'}
                         </td>
 
-                        {/* Difference */}
-                        <td className="py-2 px-3 text-right font-medium border-r border-slate-100 dark:border-slate-800">
+                        {/* Column 12: Difference */}
+                        <td className="py-2 px-3 text-right font-medium border-b border-r border-slate-100 dark:border-slate-800">
                           {exp.hasActualCost ? (
                             <span
                               className={
@@ -1154,30 +1255,39 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                           )}
                         </td>
 
-                        {/* Status */}
-                        <td className="py-2 px-2 text-center font-sans border-r border-slate-100 dark:border-slate-800">
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                              exp.status === 'Paid'
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : exp.status === 'Scheduled'
-                                ? 'bg-blue-50 text-blue-700'
-                                : exp.status === 'Estimated'
-                                ? 'bg-slate-100 text-slate-600'
-                                : 'bg-amber-50 text-amber-700'
-                            }`}
-                          >
-                            {exp.status || 'Paid'}
-                          </span>
-                        </td>
-
-                        {/* Reference */}
-                        <td className="py-2 px-3 font-sans text-slate-500 text-[10px] truncate max-w-[120px] border-r border-slate-100 dark:border-slate-800">
+                        {/* Column 13: Reference */}
+                        <td className="py-2 px-3 font-sans text-slate-500 text-[10px] truncate max-w-[120px] border-b border-r border-slate-100 dark:border-slate-800">
                           {exp.reference || '—'}
                         </td>
 
-                        {/* Action */}
-                        <td className="py-2 px-2 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        {/* Frozen Right Column: Status */}
+                        <td
+                          className={`sticky right-[64px] z-10 w-[88px] min-w-[88px] max-w-[88px] py-2 px-1.5 text-center font-sans border-b border-l-2 border-slate-300 dark:border-slate-600 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.12)] ${
+                            isSaving ? 'bg-indigo-50 dark:bg-slate-900' : 'bg-white dark:bg-slate-900'
+                          } group-hover:bg-slate-100 dark:group-hover:bg-slate-800`}
+                        >
+                          {exp.status === 'Paid' ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                              <CheckCircle2 className="w-2.5 h-2.5" />
+                              Paid
+                            </span>
+                          ) : exp.status === 'Scheduled' ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                              <Clock className="w-2.5 h-2.5" />
+                              Scheduled
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                              <Clock className="w-2.5 h-2.5" />
+                              Pending
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Frozen Right Column: Action */}
+                        <td className={`sticky right-0 z-10 w-[64px] min-w-[64px] max-w-[64px] py-2 px-1 text-center whitespace-nowrap border-b border-l border-slate-200 dark:border-slate-700 ${
+                          isSaving ? 'bg-indigo-50 dark:bg-slate-900' : 'bg-white dark:bg-slate-900'
+                        } group-hover:bg-slate-100 dark:group-hover:bg-slate-800`} onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-center gap-1">
                             <button
                               onClick={() => handleOpenRow(exp)}
@@ -1203,77 +1313,99 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
 
                   {/* SUMMARY TOTALS ROW */}
                   <tr className="bg-slate-100/90 dark:bg-slate-800/90 font-bold text-slate-900 dark:text-white border-t-2 border-slate-300 dark:border-slate-700">
-                    <td colSpan={2} className="py-3 px-3 font-sans uppercase tracking-wider text-[11px]">
+                    <td
+                      colSpan={2}
+                      className="py-3 px-3 font-sans uppercase tracking-wider text-[11px] border-b border-r border-slate-200 dark:border-slate-700"
+                    >
                       Total Expense &amp; Outflows
                     </td>
-                    <td className="py-3 px-3 text-right font-mono text-xs text-amber-800 dark:text-amber-300">
+                    <td className="py-3 px-3 text-right font-mono text-xs text-amber-800 dark:text-amber-300 border-b border-r border-slate-200 dark:border-slate-700">
                       {currencySymbol}{formatNumber(totalExpenseEstimated)}
                     </td>
-                    <td className="py-3 px-3 text-right text-rose-600 dark:text-rose-400 text-xs font-mono">
+                    <td className="py-3 px-3 text-right text-rose-600 dark:text-rose-400 text-xs font-mono border-b border-r border-slate-200 dark:border-slate-700">
                       {currencySymbol}{formatNumber(totalExpenseActual)}
                     </td>
 
                     {/* Breakdown Totals */}
-                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300">
+                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300 border-b border-r border-slate-200 dark:border-slate-700">
                       {currencySymbol}{formatNumber(paymentTotals['Stay in ATM'] || 0)}
                     </td>
-                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300">
+                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300 border-b border-r border-slate-200 dark:border-slate-700">
                       {currencySymbol}{formatNumber(paymentTotals.Cash || 0)}
                     </td>
-                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300">
+                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300 border-b border-r border-slate-200 dark:border-slate-700">
                       {currencySymbol}{formatNumber(paymentTotals['Credit Card'] || 0)}
                     </td>
-                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300">
+                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300 border-b border-r border-slate-200 dark:border-slate-700">
                       {currencySymbol}{formatNumber(paymentTotals['GCash Transfer'] || 0)}
                     </td>
-                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300">
+                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300 border-b border-r border-slate-200 dark:border-slate-700">
                       {currencySymbol}{formatNumber(paymentTotals['Kath Account'] || 0)}
                     </td>
-                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300">
+                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300 border-b border-r border-slate-200 dark:border-slate-700">
                       {currencySymbol}{formatNumber(paymentTotals['Checking Account'] || 0)}
                     </td>
-                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300">
+                    <td className="py-3 px-2.5 text-right font-medium text-slate-700 dark:text-slate-300 border-b border-r border-slate-200 dark:border-slate-700">
                       {currencySymbol}{formatNumber(paymentTotals['Bank Transfer'] || 0)}
                     </td>
 
-                    <td className="py-3 px-3 text-right text-rose-600">
+                    <td className="py-3 px-3 text-right text-rose-600 font-mono border-b border-r border-slate-200 dark:border-slate-700">
                       {expenseDifference < 0
                         ? `-${currencySymbol}${formatNumber(Math.abs(expenseDifference))}`
                         : `${currencySymbol}${formatNumber(expenseDifference)}`}
                     </td>
-                    <td colSpan={3}></td>
+                    {/* Reference empty */}
+                    <td className="py-3 px-3 border-b border-r border-slate-200 dark:border-slate-700"></td>
+                    {/* Frozen Right Column: Status */}
+                    <td className="sticky right-[64px] z-10 w-[88px] min-w-[88px] max-w-[88px] bg-slate-100 dark:bg-slate-800 py-3 px-1.5 border-b border-l-2 border-slate-300 dark:border-slate-600 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.12)]"></td>
+                    {/* Frozen Right Column: Action */}
+                    <td className="sticky right-0 z-10 w-[64px] min-w-[64px] max-w-[64px] bg-slate-100 dark:bg-slate-800 py-3 px-1 border-b border-l border-slate-200 dark:border-slate-700"></td>
                   </tr>
 
                   {/* Summary Income Row */}
                   <tr className="bg-slate-50 dark:bg-slate-850 font-semibold text-slate-700 dark:text-slate-300">
-                    <td colSpan={2} className="py-2.5 px-3 font-sans">
+                    <td
+                      colSpan={2}
+                      className="py-2.5 px-3 font-sans border-b border-r border-slate-200 dark:border-slate-700"
+                    >
                       Income
                     </td>
-                    <td className="py-2.5 px-3 text-right font-mono text-emerald-700 dark:text-emerald-300">
+                    <td className="py-2.5 px-3 text-right font-mono text-emerald-700 dark:text-emerald-300 border-b border-r border-slate-200 dark:border-slate-700">
                       {currencySymbol}{formatNumber(totalIncomeEstimated)}
                     </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 border-b border-r border-slate-200 dark:border-slate-700">
                       {currencySymbol}{formatNumber(totalIncomeActual)}
                     </td>
-                    <td colSpan={11}></td>
+                    <td colSpan={9} className="border-b border-slate-200 dark:border-slate-700"></td>
+                    {/* Frozen Right Column: Status */}
+                    <td className="sticky right-[64px] z-10 w-[88px] min-w-[88px] max-w-[88px] bg-slate-50 dark:bg-slate-850 border-b border-l-2 border-slate-300 dark:border-slate-600 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.12)]"></td>
+                    {/* Frozen Right Column: Action */}
+                    <td className="sticky right-0 z-10 w-[64px] min-w-[64px] max-w-[64px] bg-slate-50 dark:bg-slate-850 border-b border-l border-slate-200 dark:border-slate-700"></td>
                   </tr>
 
                   {/* REMAINING EXTRA SALARY ROW */}
                   <tr className="bg-gradient-to-r from-emerald-100/80 to-teal-100/80 dark:from-emerald-950/60 dark:to-teal-950/60 font-bold text-slate-900 dark:text-white border-t border-emerald-300 dark:border-emerald-800">
-                    <td colSpan={2} className="py-3 px-3 font-sans text-xs text-emerald-900 dark:text-emerald-200">
+                    <td
+                      colSpan={2}
+                      className="py-3 px-3 font-sans text-xs text-emerald-900 dark:text-emerald-200 border-b border-r border-emerald-200 dark:border-emerald-800"
+                    >
                       Extra / Remaining to Salary
                     </td>
-                    <td className="py-3 px-3 text-right font-mono text-xs text-emerald-800 dark:text-emerald-300">
+                    <td className="py-3 px-3 text-right font-mono text-xs text-emerald-800 dark:text-emerald-300 border-b border-r border-emerald-200 dark:border-emerald-800">
                       {currencySymbol}{formatNumber(remainingExtraEstimated)} (Est)
                     </td>
-                    <td className="py-3 px-3 text-right font-mono text-sm text-emerald-700 dark:text-emerald-300">
+                    <td className="py-3 px-3 text-right font-mono text-sm text-emerald-700 dark:text-emerald-300 border-b border-r border-emerald-200 dark:border-emerald-800">
                       {currencySymbol}{formatNumber(remainingExtra)}
                     </td>
-                    <td colSpan={11} className="py-3 px-3 font-sans text-[11px] text-emerald-800 dark:text-emerald-300">
+                    <td colSpan={9} className="py-3 px-3 font-sans text-[11px] text-emerald-800 dark:text-emerald-300 border-b border-emerald-200 dark:border-emerald-800">
                       {totalIncomeActual > 0
                         ? `₱${formatNumber(remainingExtra)} remaining from your recorded salary!`
                         : `₱${formatNumber(remainingExtraEstimated)} projected remaining from estimated budget.`}
                     </td>
+                    {/* Frozen Right Column: Status */}
+                    <td className="sticky right-[64px] z-10 w-[88px] min-w-[88px] max-w-[88px] bg-emerald-100 dark:bg-emerald-950 border-b border-l-2 border-emerald-300 dark:border-emerald-800 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.12)]"></td>
+                    {/* Frozen Right Column: Action */}
+                    <td className="sticky right-0 z-10 w-[64px] min-w-[64px] max-w-[64px] bg-emerald-100 dark:bg-emerald-950 border-b border-l border-emerald-300 dark:border-emerald-800"></td>
                   </tr>
 
                 </tbody>
@@ -1359,7 +1491,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                     {editingEntryId ? 'Update Line Item' : `Record ${modalType.toUpperCase()} for ${modalPeriod}`}
                   </h3>
                   <span className="text-[11px] text-slate-500">
-                    Estimate amount is already pre-populated. Enter or adjust the actual amount.
+                    Enter or adjust the actual amount (0 is accepted).
                   </span>
                 </div>
               </div>
@@ -1627,15 +1759,12 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                 </div>
               </div>
 
-              {/* 6. ESTIMATED COST (ALREADY PRE-POPULATED!) & ACTUAL COST */}
+              {/* 6. ESTIMATED COST & ACTUAL COST */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800/60">
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-slate-800 dark:text-slate-200 font-bold flex items-center gap-1">
                       <span>Estimated Cost ({currencySymbol})</span>
-                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 font-semibold">
-                        Pre-populated
-                      </span>
                     </label>
                   </div>
                   <input
@@ -1647,7 +1776,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                     className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-xl font-mono font-bold text-slate-900 dark:text-white text-sm"
                   />
                   <p className="text-[10px] text-slate-500 mt-1">
-                    Pre-populated from your saved estimated budget.
+                    From your saved estimated budget.
                   </p>
                 </div>
 
@@ -1663,14 +1792,14 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                   <input
                     type="number"
                     step="0.01"
-                    required
-                    placeholder="e.g. 3500"
+                    min="0"
+                    placeholder="0.00"
                     value={formActual}
                     onChange={(e) => setFormActual(e.target.value)}
                     className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-700 rounded-xl font-mono font-bold text-slate-900 dark:text-white text-sm"
                   />
                   <p className="text-[10px] text-slate-500 mt-1">
-                    Enter actual amount paid or received.
+                    Enter actual amount (0 is accepted).
                   </p>
                 </div>
               </div>

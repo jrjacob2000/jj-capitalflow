@@ -223,10 +223,10 @@ export class FinanceStorageService {
   }
 
   /**
-   * Pulls budget for year from Google Drive.
+   * Fetches budget for year from Google Drive without automatically overwriting localStorage.
    * If does not exist in Drive, returns null.
    */
-  static async pullBudgetFromDrive(
+  static async fetchBudgetFromDrive(
     accessToken: string,
     year: number
   ): Promise<{ budget: YearBudgetData; file: DriveFileInfo } | null> {
@@ -235,8 +235,20 @@ export class FinanceStorageService {
     if (!file) return null;
 
     const data = await downloadJsonFile<YearBudgetData>(accessToken, file.id);
-    FinanceStorageService.saveLocalBudget(data);
     return { budget: data, file };
+  }
+
+  /**
+   * Pulls budget for year from Google Drive and saves to local storage.
+   */
+  static async pullBudgetFromDrive(
+    accessToken: string,
+    year: number
+  ): Promise<{ budget: YearBudgetData; file: DriveFileInfo } | null> {
+    const result = await FinanceStorageService.fetchBudgetFromDrive(accessToken, year);
+    if (!result) return null;
+    FinanceStorageService.saveLocalBudget(result.budget);
+    return result;
   }
 
   /**
@@ -252,17 +264,52 @@ export class FinanceStorageService {
   }
 
   /**
-   * Pulls savings ledger from Google Drive
+   * Fetches savings ledger from Google Drive without automatically overwriting localStorage.
    */
-  static async pullLedgerFromDrive(
+  static async fetchLedgerFromDrive(
     accessToken: string
   ): Promise<{ ledger: SavingsLedgerData; file: DriveFileInfo } | null> {
     const file = await findDriveFile(accessToken, SAVINGS_LEDGER_FILE_NAME);
     if (!file) return null;
 
     const data = await downloadJsonFile<SavingsLedgerData>(accessToken, file.id);
-    FinanceStorageService.saveLocalSavingsLedger(data);
     return { ledger: data, file };
+  }
+
+  /**
+   * Pulls savings ledger from Google Drive and saves to local storage.
+   */
+  static async pullLedgerFromDrive(
+    accessToken: string
+  ): Promise<{ ledger: SavingsLedgerData; file: DriveFileInfo } | null> {
+    const result = await FinanceStorageService.fetchLedgerFromDrive(accessToken);
+    if (!result) return null;
+    FinanceStorageService.saveLocalSavingsLedger(result.ledger);
+    return result;
+  }
+
+  /**
+   * Compares local vs drive timestamps with tolerance
+   */
+  static compareTimestamps(
+    localIso?: string,
+    driveIso?: string
+  ): 'local_newer' | 'drive_newer' | 'same' {
+    if (!localIso && !driveIso) return 'same';
+    if (localIso && !driveIso) return 'local_newer';
+    if (!localIso && driveIso) return 'drive_newer';
+
+    const localMs = new Date(localIso!).getTime();
+    const driveMs = new Date(driveIso!).getTime();
+
+    if (isNaN(localMs) || isNaN(driveMs)) return 'same';
+
+    // 2-second tolerance for sync / save clock differences
+    if (Math.abs(localMs - driveMs) <= 2000) {
+      return 'same';
+    }
+
+    return localMs > driveMs ? 'local_newer' : 'drive_newer';
   }
 
   /**
