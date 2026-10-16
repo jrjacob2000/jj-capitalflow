@@ -3,7 +3,6 @@ export type EntryType = 'income' | 'expense' | 'saving';
 export type EntryFrequency = 'monthly' | 'bi-weekly';
 
 export type PaymentMethod =
-  | 'Stay in ATM'
   | 'Cash'
   | 'Credit Card'
   | 'GCash Transfer'
@@ -182,4 +181,5 @@ export interface DriveSyncStatus {
   error: string | null;
   budgetFileId: string | null;
   savingsFileId: string | null;
+  isSessionExpired?: boolean;
 }

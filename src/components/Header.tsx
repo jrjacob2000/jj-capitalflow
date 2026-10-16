@@ -11,6 +11,7 @@ import {
   Plus,
   Layers,
   Sparkles,
+  KeyRound,
 } from 'lucide-react';
 import { EntryFrequency, DriveSyncStatus } from '../types/finance';
 
@@ -287,12 +288,24 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                 )}
               </div>
+            ) : driveStatus.isSessionExpired ? (
+              /* Session Expired Prompt Button */
+              <button
+                type="button"
+                onClick={onSignInWithGoogle}
+                className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/70 dark:hover:bg-amber-900/80 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 rounded-xl shadow-2xs transition-all text-xs font-semibold cursor-pointer"
+                title="Google Drive session has expired. Click to sign in again."
+              >
+                <KeyRound className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse" />
+                <span className="hidden sm:inline">Session Expired &bull; Reconnect</span>
+                <span className="sm:hidden">Reconnect</span>
+              </button>
             ) : (
               /* Official Google Sign-In Button as mandated in workspace-integration */
               <button
                 type="button"
                 onClick={onSignInWithGoogle}
-                className="flex items-center gap-2.5 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 shadow-2xs transition-all text-xs font-semibold text-slate-700 dark:text-slate-200"
+                className="flex items-center gap-2.5 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 shadow-2xs transition-all text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
               >
                 <svg
                   version="1.1"

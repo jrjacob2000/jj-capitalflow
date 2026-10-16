@@ -22,6 +22,9 @@ import {
   googleSignIn,
   logout,
   getAccessToken,
+  clearCachedToken,
+  isDriveTokenExpired,
+  auth,
 } from './services/firebase';
 import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
@@ -30,7 +33,13 @@ import { SavingsLedgerView } from './components/SavingsLedgerView';
 import { DriveFilesManagerView } from './components/DriveFilesManagerView';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { DriveConflictModal, DriveConflictDetail } from './components/DriveConflictModal';
-import { getBudgetFileName, SAVINGS_LEDGER_FILE_NAME } from './services/driveService';
+import { DriveSessionExpiredModal } from './components/DriveSessionExpiredModal';
+import {
+  getBudgetFileName,
+  SAVINGS_LEDGER_FILE_NAME,
+  isSessionExpiredError,
+  validateDriveToken,
+} from './services/driveService';
 import { CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 
 export default function App() {
@@ -71,6 +80,9 @@ export default function App() {
     items: [],
   });
 
+  // Google Drive Session Expired Modal State
+  const [isSessionExpiredModalOpen, setIsSessionExpiredModalOpen] = useState<boolean>(false);
+
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
 
@@ -78,6 +90,20 @@ export default function App() {
     setToastMessage({ text, type });
     setTimeout(() => setToastMessage(null), 4000);
   };
+
+  // Centralized Google Drive session expired handler
+  const handleSessionExpired = useCallback((customMsg?: string) => {
+    clearCachedToken();
+    setDriveStatus((prev) => ({
+      ...prev,
+      isSyncing: false,
+      isSignedIn: false,
+      isSessionExpired: true,
+      error: customMsg || 'Google Drive session has expired. Please sign in again.',
+    }));
+    setIsSessionExpiredModalOpen(true);
+    showToast(customMsg || 'Google Drive session expired. Please sign in again.', 'error');
+  }, []);
 
   // Confirmation Modal State (required for Google Workspace mutating actions)
   const [confirmationModal, setConfirmationModal] = useState<{
@@ -106,9 +132,11 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = initAuth(
       async (user, token) => {
+        setIsSessionExpiredModalOpen(false);
         setDriveStatus((prev) => ({
           ...prev,
           isSignedIn: true,
+          isSessionExpired: false,
           userEmail: user.email,
           userName: user.displayName || user.email?.split('@')[0] || 'User',
           userPhoto: user.photoURL,
@@ -121,22 +149,65 @@ export default function App() {
           const years = FinanceStorageService.getKnownYears();
           setAvailableYears(years);
         } catch (e: any) {
-          console.warn('Could not auto-fetch files on auth init:', e);
+          if (isSessionExpiredError(e)) {
+            handleSessionExpired();
+          } else {
+            console.warn('Could not auto-fetch files on auth init:', e);
+          }
         }
       },
       () => {
+        const hasFirebaseUser = Boolean(auth.currentUser);
         setDriveStatus((prev) => ({
           ...prev,
           isSignedIn: false,
-          userEmail: null,
-          userName: null,
-          userPhoto: null,
+          isSessionExpired: hasFirebaseUser,
+          error: hasFirebaseUser ? 'Google Drive session expired. Please sign in again.' : null,
+          userEmail: hasFirebaseUser ? auth.currentUser?.email || prev.userEmail : null,
+          userName: hasFirebaseUser ? auth.currentUser?.displayName || prev.userName : null,
+          userPhoto: hasFirebaseUser ? auth.currentUser?.photoURL || prev.userPhoto : null,
         }));
+        if (hasFirebaseUser) {
+          setIsSessionExpiredModalOpen(true);
+        }
       }
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [handleSessionExpired]);
+
+  // Proactively check session expiration (every 3 minutes and when window regains focus)
+  useEffect(() => {
+    if (!driveStatus.isSignedIn) return;
+
+    const checkLiveness = async () => {
+      if (isDriveTokenExpired()) {
+        handleSessionExpired('Google Drive access token expired (1-hour limit). Please log in again.');
+        return;
+      }
+      const token = await getAccessToken();
+      if (!token) {
+        handleSessionExpired('Google Drive session has expired.');
+        return;
+      }
+      const isValid = await validateDriveToken(token);
+      if (!isValid) {
+        handleSessionExpired('Google Drive authorization expired or was revoked.');
+      }
+    };
+
+    const onFocus = () => {
+      checkLiveness();
+    };
+
+    window.addEventListener('focus', onFocus);
+    const interval = setInterval(checkLiveness, 3 * 60 * 1000);
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      clearInterval(interval);
+    };
+  }, [driveStatus.isSignedIn, handleSessionExpired]);
 
   // Google Sign-In handler with local overwrite protection & conflict check
   const handleSignInWithGoogle = async () => {
@@ -148,13 +219,17 @@ export default function App() {
         return;
       }
 
+      setIsSessionExpiredModalOpen(false);
+
       setDriveStatus((prev) => ({
         ...prev,
         isSignedIn: true,
+        isSessionExpired: false,
         userEmail: result.user.email,
         userName: result.user.displayName || result.user.email?.split('@')[0] || 'User',
         userPhoto: result.user.photoURL,
         isSyncing: false,
+        error: null,
       }));
 
       // Scan Google Drive for existing files
@@ -350,7 +425,10 @@ export default function App() {
 
   const handlePushAllLocalToDrive = async () => {
     const token = await getAccessToken();
-    if (!token) return;
+    if (!token) {
+      handleSessionExpired('Google Drive session expired. Please sign in again to sync your files.');
+      return;
+    }
     try {
       setDriveStatus((p) => ({ ...p, isSyncing: true }));
       const currentLocalBudget = FinanceStorageService.loadLocalBudget(currentYear);
@@ -367,6 +445,10 @@ export default function App() {
       setConflictModalState({ isOpen: false, items: [] });
       showToast('Uploaded latest local budget and ledger to Google Drive!', 'success');
     } catch (err: any) {
+      if (isSessionExpiredError(err)) {
+        handleSessionExpired('Google Drive session expired while uploading. Please sign in again.');
+        return;
+      }
       setDriveStatus((p) => ({ ...p, isSyncing: false, error: err.message }));
       showToast(`Upload failed: ${err.message}`, 'error');
     }
@@ -793,7 +875,7 @@ export default function App() {
   const triggerSaveBudgetToDrive = async () => {
     const token = await getAccessToken();
     if (!token) {
-      handleSignInWithGoogle();
+      handleSessionExpired('Google Drive session expired. Please sign in again.');
       return;
     }
 
@@ -818,6 +900,10 @@ export default function App() {
           }));
           showToast(`Successfully saved ${fileName} to Google Drive!`);
         } catch (err: any) {
+          if (isSessionExpiredError(err)) {
+            handleSessionExpired('Google Drive session expired while saving budget. Please sign in again.');
+            return;
+          }
           setDriveStatus((p) => ({ ...p, isSyncing: false, error: err.message }));
           showToast(`Error saving to Drive: ${err.message}`, 'error');
         } finally {
@@ -830,7 +916,7 @@ export default function App() {
   const triggerSaveLedgerToDrive = async () => {
     const token = await getAccessToken();
     if (!token) {
-      handleSignInWithGoogle();
+      handleSessionExpired('Google Drive session expired. Please sign in again.');
       return;
     }
 
@@ -854,6 +940,10 @@ export default function App() {
           }));
           showToast(`Successfully saved ${SAVINGS_LEDGER_FILE_NAME} to Google Drive!`);
         } catch (err: any) {
+          if (isSessionExpiredError(err)) {
+            handleSessionExpired('Google Drive session expired while saving ledger. Please sign in again.');
+            return;
+          }
           setDriveStatus((p) => ({ ...p, isSyncing: false, error: err.message }));
           showToast(`Error saving ledger: ${err.message}`, 'error');
         } finally {
@@ -866,7 +956,7 @@ export default function App() {
   const triggerSyncAll = async () => {
     const token = await getAccessToken();
     if (!token) {
-      handleSignInWithGoogle();
+      handleSessionExpired('Google Drive session expired. Please sign in again.');
       return;
     }
 
@@ -891,6 +981,10 @@ export default function App() {
           }));
           showToast(`Synced ${budgetFileName} and ${SAVINGS_LEDGER_FILE_NAME} to Google Drive!`);
         } catch (err: any) {
+          if (isSessionExpiredError(err)) {
+            handleSessionExpired('Google Drive session expired while syncing. Please sign in again.');
+            return;
+          }
           setDriveStatus((p) => ({ ...p, isSyncing: false, error: err.message }));
           showToast(`Sync failed: ${err.message}`, 'error');
         } finally {

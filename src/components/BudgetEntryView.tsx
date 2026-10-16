@@ -144,6 +144,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
     new Date().toISOString().split('T')[0].replace(/^\d{4}/, String(budget.year))
   );
   const [formCategory, setFormCategory] = useState<string>(expenseCategories[0] || 'Budget');
+  const [formItem, setFormItem] = useState<string>('');
   const [formAmount, setFormAmount] = useState<string>('');
   const [formDescription, setFormDescription] = useState<string>('');
   const [formAccountId, setFormAccountId] = useState<string>(accounts[0]?.id || '');
@@ -332,14 +333,16 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
       periodIndex,
       type: formType,
       category: formCategory,
+      item: formItem,
       amount: amountNum,
-      description: formDescription || formCategory,
+      description: formDescription || formItem || formCategory,
       savingAccountId: formType === 'saving' ? formAccountId : undefined,
       savingAccountName: formType === 'saving' ? selectedAcc?.name : undefined,
     });
 
     setFormAmount('');
     setFormDescription('');
+    setFormItem('');
     setIsAddModalOpen(false);
   };
 
@@ -898,189 +901,57 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
           <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[90vh] flex flex-col">
             
             {/* Modal Header */}
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>Record Entry by Period</span>
-                  <span className="px-2 py-0.5 rounded-md text-xs font-mono bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
-                    {modalPeriod} ({budget.year})
-                  </span>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                  {modalType === 'income' ? 'New Income' : modalType === 'expense' ? 'New Expense' : 'New Saving'}
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Select your cycle to see remaining salary and live cash flow balance.
+                <p className="text-xs text-slate-500">
+                  Recording for {modalPeriod} ({budget.year})
                 </p>
               </div>
-
               <button
                 onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-xl"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-5 text-xs flex-1">
+            <div className="space-y-6">
               
-              {/* 1. Period Selector (Monthly vs Bi-Weekly) */}
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                    <Calendar className="w-4 h-4 text-indigo-500" />
-                    <span>Target Period</span>
+              {/* Period selection */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Period
                   </label>
-
-                  <div className="flex items-center bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px]">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setModalFrequency('monthly');
-                        const m = MONTH_NAMES[new Date().getMonth()];
-                        handleModalPeriodChange(m);
-                      }}
-                      className={`px-2 py-0.5 rounded-md ${
-                        modalFrequency === 'monthly'
-                          ? 'bg-indigo-600 text-white font-semibold'
-                          : 'text-slate-500'
-                      }`}
-                    >
-                      Monthly
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setModalFrequency('bi-weekly');
-                        handleModalPeriodChange(currentBiWeeklyPeriod);
-                      }}
-                      className={`px-2 py-0.5 rounded-md ${
-                        modalFrequency === 'bi-weekly'
-                          ? 'bg-indigo-600 text-white font-semibold'
-                          : 'text-slate-500'
-                      }`}
-                    >
-                      Bi-Weekly
-                    </button>
-                  </div>
-                </div>
-
-                {/* Period Grid/Dropdown */}
-                <div>
                   <select
                     value={modalPeriod}
                     onChange={(e) => handleModalPeriodChange(e.target.value)}
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 text-xs"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-semibold outline-none"
                   >
                     {modalPeriodOptions.map((period) => (
-                      <option key={period} value={period}>
-                        {modalFrequency === 'monthly'
-                          ? `Month of ${period} ${budget.year}`
-                          : `${period} (Bi-Weekly Period)`}
-                      </option>
+                      <option key={period} value={period}>{period}</option>
                     ))}
                   </select>
                 </div>
-              </div>
-
-              {/* 2. REAL-TIME REMAINING SALARY & CASH FLOW HUD */}
-              <div className="p-4 bg-slate-900 text-white rounded-2xl border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs text-indigo-300 font-semibold">
-                    <Coins className="w-4 h-4 text-amber-300" />
-                    <span>Period Income &amp; Salary Balance ({modalPeriod})</span>
-                  </div>
-
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      periodStats.simulatedRemaining >= 0
-                        ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                        : 'bg-rose-950 text-rose-400 border border-rose-800'
-                    }`}
-                  >
-                    {periodStats.simulatedRemaining >= 0 ? 'Within Budget' : 'Over Income!'}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="bg-white/5 p-2 rounded-xl">
-                    <span className="text-[10px] text-slate-400 block">Total Income</span>
-                    <span className="font-mono font-bold text-emerald-400 text-xs">
-                      {currencySymbol}{formatNumber(periodStats.income)}
-                    </span>
-                  </div>
-                  <div className="bg-white/5 p-2 rounded-xl">
-                    <span className="text-[10px] text-slate-400 block">Committed</span>
-                    <span className="font-mono font-bold text-rose-400 text-xs">
-                      {currencySymbol}{formatNumber(periodStats.expenses + periodStats.savings)}
-                    </span>
-                  </div>
-                  <div className="bg-white/5 p-2 rounded-xl">
-                    <span className="text-[10px] text-slate-400 block">Current Remaining</span>
-                    <span
-                      className={`font-mono font-bold text-xs ${
-                        periodStats.currentRemaining >= 0 ? 'text-white' : 'text-rose-400'
-                      }`}
-                    >
-                      {currencySymbol}{formatNumber(periodStats.currentRemaining)}
-                    </span>
+                
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Mode
+                  </label>
+                  <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-semibold text-slate-600">
+                    {modalFrequency === 'monthly' ? 'Monthly' : 'Bi-Weekly'}
                   </div>
                 </div>
-
-                {/* Simulated Live Remaining Status */}
-                {periodStats.inputVal > 0 && (
-                  <div className="p-3 bg-white/10 rounded-xl border border-white/10 flex items-center justify-between text-xs animate-in fade-in">
-                    <div>
-                      <span className="text-slate-300 block text-[11px]">
-                        Remaining after this {formType}:
-                      </span>
-                      <span
-                        className={`text-base font-mono font-bold ${
-                          periodStats.simulatedRemaining >= 0
-                            ? 'text-emerald-400'
-                            : 'text-rose-400'
-                        }`}
-                      >
-                        {periodStats.simulatedRemaining >= 0 ? '+' : '-'}
-                        {currencySymbol}{formatNumber(Math.abs(periodStats.simulatedRemaining))}
-                      </span>
-                    </div>
-
-                    <div className="text-right text-[11px] text-slate-300">
-                      <div>
-                        {periodStats.simulatedRemaining >= 0 ? (
-                          <span className="text-emerald-300 font-semibold flex items-center gap-1 justify-end">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Affordable</span>
-                          </span>
-                        ) : (
-                          <span className="text-rose-400 font-semibold flex items-center gap-1 justify-end">
-                            <AlertTriangle className="w-3.5 h-3.5" />
-                            <span>Exceeds Period Income</span>
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-slate-400 text-[10px]">
-                        {periodStats.simulatedUsedPct.toFixed(1)}% of income allocated
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {!periodStats.hasIncome && formType !== 'income' && (
-                  <div className="p-2.5 bg-amber-950/60 text-amber-200 rounded-xl border border-amber-800/60 flex items-start gap-2 text-[11px]">
-                    <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
-                    <span>
-                      No salary or income has been recorded for {modalPeriod} yet. You can still record this entry, but your period balance will be negative until income is logged.
-                    </span>
-                  </div>
-                )}
               </div>
 
               {/* 3. Form Details */}
               <form onSubmit={handleCreateEntry} className="space-y-4">
                 {/* Entry Type */}
                 <div>
-                  <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1.5">
-                    Entry Type
-                  </label>
+
                   <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
@@ -1174,81 +1045,72 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                 {/* Amount & Date in Period */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">
-                      Amount ({currencySymbol})
-                    </label>
                     <input
                       type="number"
                       step="0.01"
                       min="0"
                       required
-                      placeholder="e.g. 0.00"
+                      placeholder={`Amount (${currencySymbol})`}
                       value={formAmount}
                       onChange={(e) => setFormAmount(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-base font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">
-                      Date in {modalPeriod}
-                    </label>
                     <input
                       type="date"
                       required
                       value={formDate}
                       onChange={(e) => setFormDate(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
                     />
                   </div>
                 </div>
 
                 {/* Category Selection */}
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-slate-600 dark:text-slate-400 font-semibold">
-                      Category
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setIsManagerModalOpen(true)}
-                      className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
-                    >
-                      + Manage Categories
-                    </button>
-                  </div>
-                  <select
+                  <input
+                    type="text"
+                    list="category-options"
                     value={formCategory}
                     onChange={(e) => setFormCategory(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="Category"
+                  />
+                  <datalist id="category-options">
                     {(formType === 'income'
                       ? incomeCategories
                       : formType === 'expense'
                       ? expenseCategories
                       : savingCategories
                     ).map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
+                      <option key={cat} value={cat} />
                     ))}
-                  </select>
+                  </datalist>
+                </div>
+                
+                <div>
+                  <input
+                    type="text"
+                    placeholder="Item Name (optional)"
+                    value={formItem}
+                    onChange={(e) => setFormItem(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
                 </div>
 
                 {/* If Saving: Select Destination Account for Ledger */}
                 {formType === 'saving' && (
                   <div className="p-3.5 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-200 dark:border-indigo-800/80 space-y-2">
-                    <div className="flex items-center gap-1.5 text-indigo-700 dark:text-indigo-300 font-semibold">
-                      <PiggyBank className="w-4 h-4" />
+                    <div className="flex items-center gap-1.5 text-indigo-700 dark:text-indigo-300 font-semibold text-[11px]">
+                      <PiggyBank className="w-3.5 h-3.5" />
                       <span>Accumulate into Savings Ledger Account</span>
                     </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Credited automatically into your separate Google Drive savings ledger file (<code className="font-mono text-indigo-600 dark:text-indigo-400">capitalflow_savings_ledger.json</code>).
-                    </p>
                     <select
                       value={formAccountId}
                       onChange={(e) => setFormAccountId(e.target.value)}
-                      className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-700 rounded-lg text-slate-900 dark:text-white outline-none"
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-700 rounded-lg text-slate-900 dark:text-white outline-none text-xs"
                     >
                       {accounts.map((acc) => (
                         <option key={acc.id} value={acc.id}>
@@ -1261,15 +1123,12 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
 
                 {/* Description */}
                 <div>
-                  <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">
-                    Description / Note
-                  </label>
                   <input
                     type="text"
-                    placeholder="e.g. Electric bill, Bi-weekly salary deposit, Emergency fund allocation"
+                    placeholder="Description"
                     value={formDescription}
                     onChange={(e) => setFormDescription(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
 

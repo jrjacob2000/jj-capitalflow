@@ -8,14 +8,14 @@ interface CategoryDonutChartProps {
 }
 
 const CATEGORY_COLORS = [
-  '#4f46e5', // indigo-600
-  '#06b6d4', // cyan-500
-  '#10b981', // emerald-500
+  '#6366f1', // indigo-500
+  '#14b8a6', // teal-500
   '#f59e0b', // amber-500
   '#ec4899', // pink-500
-  '#8b5cf6', // purple-500
+  '#8b5cf6', // violet-500
   '#f97316', // orange-500
-  '#14b8a6', // teal-500
+  '#06b6d4', // cyan-500
+  '#10b981', // emerald-500
   '#64748b', // slate-500
 ];
 
@@ -128,23 +128,25 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
                       d={path}
                       fill="transparent"
                       stroke={slice.color}
-                      strokeWidth={isHovered ? 18 : 14}
+                      strokeWidth={isHovered ? 20 : 12}
                       strokeLinecap="round"
                       onMouseEnter={() => setHoveredCategory(slice.category)}
                       onMouseLeave={() => setHoveredCategory(null)}
-                      className="cursor-pointer transition-all duration-150"
+                      className="cursor-pointer transition-all duration-300 ease-out"
+                      style={{ filter: isHovered ? 'drop-shadow(0 0 6px rgba(0,0,0,0.2))' : 'none' }}
                     />
                   );
                 })}
               </svg>
 
               {/* Center stat */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
-                <span className="text-xs text-slate-400 capitalize">
-                  {hoveredSlice ? hoveredSlice.percentage.toFixed(0) + '%' : 'Share'}
+              {/* Center stat */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none px-2">
+                <span className="text-[10px] text-slate-400 capitalize truncate w-full">
+                  {hoveredSlice ? hoveredSlice.category : 'Total'}
                 </span>
-                <span className="text-sm font-bold font-mono text-slate-800 dark:text-white truncate max-w-[80px]">
-                  {hoveredSlice ? `${currencySymbol}${formatNumber(hoveredSlice.amount)}` : `${slices.length} items`}
+                <span className="text-xs font-bold font-mono text-slate-800 dark:text-white truncate max-w-[80px]">
+                  {hoveredSlice ? `${currencySymbol}${formatNumber(hoveredSlice.amount)}` : `${currencySymbol}${formatNumber(totalAmount)}`}
                 </span>
               </div>
             </div>

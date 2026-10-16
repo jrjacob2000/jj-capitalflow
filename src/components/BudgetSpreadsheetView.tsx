@@ -45,6 +45,7 @@ import {
   DEFAULT_ITEM_TEMPLATES,
 } from '../services/sampleData';
 import { CategoryAndTemplateManagerModal } from './CategoryAndTemplateManagerModal';
+import { CarryOverModal } from './CarryOverModal';
 
 export interface SheetRowItem {
   id: string;
@@ -105,6 +106,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isManagerModalOpen, setIsManagerModalOpen] = useState(false);
+  const [isCarryOverModalOpen, setIsCarryOverModalOpen] = useState(false);
   const [modalPeriod, setModalPeriod] = useState<string>(selectedPeriod);
   const [modalType, setModalType] = useState<'income' | 'expense' | 'saving'>('expense');
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
@@ -330,6 +332,24 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
     [unifiedExpenseRows]
   );
 
+  const { surplus, hasBeenCarriedOver } = useMemo(() => {
+    const currentIndex = periodList.indexOf(selectedPeriod);
+    if (currentIndex <= 0) return { surplus: 0, hasBeenCarriedOver: true };
+    const prevPeriod = periodList[currentIndex - 1];
+    const prevEntries = budget.entries.filter((e) => e.period === prevPeriod);
+    const incAct = prevEntries
+      .filter((e) => e.type === 'income')
+      .reduce((sum, e) => sum + (e.actualCost ?? e.amount ?? 0), 0);
+    const expAct = prevEntries
+      .filter((e) => e.type === 'expense' || e.type === 'saving')
+      .reduce((sum, e) => sum + (e.actualCost ?? e.amount ?? 0), 0);
+    const surplus = incAct - expAct;
+    const hasBeenCarriedOver = budget.entries.some(
+      (e) => e.period === selectedPeriod && e.description.includes('Carry-over')
+    );
+    return { surplus, hasBeenCarriedOver };
+  }, [budget.entries, periodList, selectedPeriod]);
+
   // Helpers
   const formatNumber = (num: number) =>
     new Intl.NumberFormat('en-PH', { maximumFractionDigits: 0 }).format(num);
@@ -408,15 +428,28 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
       .filter((t) => t.type === 'income')
       .reduce((sum, t) => sum + t.defaultEstimatedCost, 0);
 
-    const expAct = entriesInModalPeriod
+    // Paid only expenses
+    const expPaid = entriesInModalPeriod
+      .filter((e) => (e.type === 'expense' || e.type === 'saving') && e.status === 'Paid')
+      .reduce((sum, e) => sum + (e.actualCost ?? e.amount ?? 0), 0);
+    // All expenses (paid + pending/scheduled)
+    const expAll = entriesInModalPeriod
       .filter((e) => e.type === 'expense' || e.type === 'saving')
       .reduce((sum, e) => sum + (e.actualCost ?? e.amount ?? 0), 0);
+      
     const expEst = itemTemplates
       .filter((t) => t.type === 'expense' || t.type === 'saving')
       .reduce((sum, t) => sum + t.defaultEstimatedCost, 0);
 
     const hasRecordedIncome = entriesInModalPeriod.some((e) => e.type === 'income');
-    const currRemaining = (hasRecordedIncome ? incAct : incEst) - expAct;
+    // Use only actual recorded income
+    const totalIncome = incAct;
+    
+    // Remaining based on PAID items
+    const currRemainingPaid = totalIncome - expPaid;
+    // Projected remaining if ALL items are paid
+    const projectedTotalRemaining = totalIncome - expAll;
+    
     const hasActualInput = formActual.trim() !== '' && !isNaN(parseFloat(formActual));
     const actInput = hasActualInput ? parseFloat(formActual) : (parseFloat(formEstimated) || 0);
 
@@ -428,13 +461,13 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
       }
     }
 
-    let projectedIncome = hasRecordedIncome ? incAct : incEst;
-    let projectedExpense = expAct;
+    let projectedIncome = totalIncome;
+    let projectedExpense = expAll;
 
     if (modalType === 'income') {
-      projectedIncome = incAct - origAct + actInput;
+      projectedIncome = totalIncome - origAct + actInput;
     } else {
-      projectedExpense = expAct - origAct + actInput;
+      projectedExpense = expAll - origAct + actInput;
     }
 
     const projectedRemaining = projectedIncome - projectedExpense;
@@ -443,9 +476,10 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
     return {
       incAct,
       incEst,
-      expAct,
+      expAct: expPaid, // Used in the HUD as 'Total Outflow'
       expEst,
-      currRemaining,
+      currRemainingPaid,
+      projectedTotalRemaining,
       projectedIncome,
       projectedExpense,
       projectedRemaining,
@@ -889,12 +923,12 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
             <Sparkles className="w-4 h-4 text-amber-300" />
           </div>
           <div className="text-xl font-black font-mono">
-            {currencySymbol}{formatNumber(hasAnyIncomeRecorded || hasAnyExpenseRecorded ? remainingExtra : remainingExtraEstimated)}
+            {currencySymbol}{formatNumber(modalPeriodStats.currRemainingPaid)}
           </div>
           <div className="flex items-center justify-between text-[11px] text-emerald-100 mt-1 font-medium">
-            <span>Estimated Remaining: {currencySymbol}{formatNumber(remainingExtraEstimated)}</span>
+            <span>Projected if all paid: {currencySymbol}{formatNumber(modalPeriodStats.projectedTotalRemaining)}</span>
             <span className="px-2 py-0.5 rounded-full bg-white/20 text-[10px] font-bold">
-              {(hasAnyIncomeRecorded || hasAnyExpenseRecorded ? remainingExtra : remainingExtraEstimated) >= 0 ? 'Safe Surplus' : 'Deficit'}
+              {modalPeriodStats.currRemainingPaid >= 0 ? 'Safe Surplus' : 'Deficit'}
             </span>
           </div>
         </div>
@@ -907,13 +941,22 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
           {/* 1. INCOME TABLE - PRE-POPULATED ESTIMATES */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
             <div className="p-4 bg-slate-50/80 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
                 <span className="font-bold text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
                   Income Sources ({selectedPeriod})
                 </span>
                 <span className="text-[10px] text-slate-500 font-mono bg-emerald-50 dark:bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
                   {unifiedIncomeRows.length} items
                 </span>
+                {surplus > 0 && !hasBeenCarriedOver && (
+                  <button
+                    onClick={() => setIsCarryOverModalOpen(true)}
+                    className="ml-2 px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold rounded-lg border border-amber-600 flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                  >
+                    <ArrowRight className="w-3.5 h-3.5" />
+                    Bring Forward Previous Surplus: ₱{surplus.toLocaleString()}
+                  </button>
+                )}
               </div>
               <button
                 onClick={() => handleOpenAdd('income')}
@@ -975,7 +1018,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                             </span>
                           ) : (
                             <span className="text-slate-400 font-sans text-[11px] group-hover:text-emerald-600 font-medium transition-colors">
-                              + Record actual
+                              Record actual
                             </span>
                           )}
                         </td>
@@ -1110,9 +1153,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                     </th>
                     
                     {/* Payment Breakdown Columns (5-11) */}
-                    <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-200 dark:border-slate-700">
-                      Stay in ATM
-                    </th>
+
                     <th className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-200 dark:border-slate-700">
                       Cash
                     </th>
@@ -1206,15 +1247,13 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                             `${currencySymbol}${formatNumber(act)}`
                           ) : (
                             <span className="text-slate-400 font-sans text-[10px] group-hover:text-indigo-600 transition-colors">
-                              + Record actual
+                              Record actual
                             </span>
                           )}
                         </td>
 
                         {/* Columns 5-11: Payment Breakdown */}
-                        <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-100 dark:border-slate-800">
-                          {atm > 0 ? `${currencySymbol}${formatNumber(atm)}` : '—'}
-                        </td>
+
                         <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400 border-b border-r border-slate-100 dark:border-slate-800">
                           {cash > 0 ? `${currencySymbol}${formatNumber(cash)}` : '—'}
                         </td>
@@ -1469,9 +1508,9 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
           <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-2xl text-xs max-h-[92vh] overflow-y-auto">
             
             {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className={`p-2 rounded-xl ${
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className={`p-2.5 rounded-2xl ${
                   modalType === 'income'
                     ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400'
                     : modalType === 'saving'
@@ -1479,53 +1518,56 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                     : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400'
                 }`}>
                   {modalType === 'income' ? (
-                    <TrendingUp className="w-4 h-4" />
+                    <TrendingUp className="w-5 h-5" />
                   ) : modalType === 'saving' ? (
-                    <PiggyBank className="w-4 h-4" />
+                    <PiggyBank className="w-5 h-5" />
                   ) : (
-                    <Receipt className="w-4 h-4" />
+                    <Receipt className="w-5 h-5" />
                   )}
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                    {editingEntryId ? 'Update Line Item' : `Record ${modalType.toUpperCase()} for ${modalPeriod}`}
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                    {editingEntryId ? 'Update Entry' : `New ${modalType.charAt(0).toUpperCase() + modalType.slice(1)}`}
                   </h3>
-                  <span className="text-[11px] text-slate-500">
-                    Enter or adjust the actual amount (0 is accepted).
-                  </span>
+                  <p className="text-xs text-slate-500">
+                    Recording for {modalPeriod} ({budget.year})
+                  </p>
                 </div>
               </div>
               <button
                 onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-xl"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmitForm} className="mt-4 space-y-4">
+            <form onSubmit={handleSubmitForm} className="space-y-6">
               
-              {/* 1. PERIOD SELECTION */}
-              <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-700">
-                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>Target Entry Period ({budget.year})</span>
-                </label>
-                <div className="flex items-center gap-2">
+              {/* Period selection */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Period
+                  </label>
                   <select
                     value={modalPeriod}
                     onChange={(e) => setModalPeriod(e.target.value)}
-                    className="flex-1 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-semibold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-semibold outline-none"
                   >
                     {periodList.map((p) => (
-                      <option key={p} value={p}>
-                        {frequency === 'monthly' ? `${p} (${budget.year})` : `${p} - Pay Period`}
-                      </option>
+                      <option key={p} value={p}>{p}</option>
                     ))}
                   </select>
-                  <span className="text-[11px] text-slate-500 shrink-0 font-medium">
-                    {frequency === 'monthly' ? 'Monthly Mode' : 'Bi-Weekly Mode'}
-                  </span>
+                </div>
+                
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Mode
+                  </label>
+                  <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-semibold text-slate-600">
+                    {frequency === 'monthly' ? 'Monthly' : 'Bi-Weekly'}
+                  </div>
                 </div>
               </div>
 
@@ -1553,25 +1595,19 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
 
                 <div className="grid grid-cols-3 gap-2 text-center py-2 bg-white/70 dark:bg-slate-900/60 rounded-xl border border-slate-200/50 dark:border-slate-700/50">
                   <div>
-                    <span className="text-[10px] text-slate-500 block">Period Salary</span>
+                    <span className="text-[10px] text-slate-500 block">Remaining (Paid Only)</span>
                     <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-xs">
-                      {currencySymbol}{formatNumber(modalPeriodStats.projectedIncome)}
+                      {currencySymbol}{formatNumber(modalPeriodStats.currRemainingPaid)}
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 block">Total Outflow</span>
-                    <span className="font-mono font-bold text-rose-600 dark:text-rose-400 text-xs">
-                      {currencySymbol}{formatNumber(modalPeriodStats.projectedExpense)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500 block font-bold">Remaining Salary</span>
+                    <span className="text-[10px] text-slate-500 block">Projected (Total)</span>
                     <span className={`font-mono font-black text-xs ${
-                      modalPeriodStats.projectedRemaining < 0
+                      modalPeriodStats.projectedTotalRemaining < 0
                         ? 'text-rose-600 dark:text-rose-400'
                         : 'text-emerald-600 dark:text-emerald-400'
                     }`}>
-                      {currencySymbol}{formatNumber(modalPeriodStats.projectedRemaining)}
+                      {currencySymbol}{formatNumber(modalPeriodStats.projectedTotalRemaining)}
                     </span>
                   </div>
                 </div>
@@ -1582,7 +1618,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                     <div
                       style={{ width: `${Math.min(100, Math.max(0, modalPeriodStats.usedPercentage))}%` }}
                       className={`h-full transition-all duration-300 ${
-                        modalPeriodStats.projectedRemaining < 0
+                        modalPeriodStats.projectedTotalRemaining < 0
                           ? 'bg-rose-500'
                           : modalPeriodStats.usedPercentage > 85
                           ? 'bg-amber-500'
@@ -1592,9 +1628,9 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                   </div>
                   <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1">
                     <span>
-                      {modalPeriodStats.projectedRemaining < 0
-                        ? `⚠️ Warning: Exceeds ${modalPeriod} salary by ${currencySymbol}${formatNumber(Math.abs(modalPeriodStats.projectedRemaining))}`
-                        : `✅ ${currencySymbol}${formatNumber(modalPeriodStats.projectedRemaining)} will remain from your salary`}
+                      {modalPeriodStats.projectedTotalRemaining < 0
+                        ? `⚠️ Warning: Projected to exceed ${modalPeriod} salary by ${currencySymbol}${formatNumber(Math.abs(modalPeriodStats.projectedTotalRemaining))}`
+                        : `✅ ${currencySymbol}${formatNumber(modalPeriodStats.projectedTotalRemaining)} will remain once all items are paid`}
                     </span>
                     <span className="font-mono font-semibold">
                       {modalPeriodStats.usedPercentage.toFixed(0)}% Allocated
@@ -1725,25 +1761,27 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                       onClick={() => setIsManagerModalOpen(true)}
                       className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
                     >
-                      + Manage
+                      Manage
                     </button>
                   </div>
-                  <select
+                  <input
+                    type="text"
+                    list="category-options"
                     value={formCategory}
                     onChange={(e) => handleCategoryChange(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                  >
+                    placeholder="Select or type a category..."
+                  />
+                  <datalist id="category-options">
                     {(modalType === 'income'
                       ? incomeCategories
                       : modalType === 'saving'
                       ? savingCategories
                       : expenseCategories
                     ).map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
+                      <option key={cat} value={cat} />
                     ))}
-                  </select>
+                  </datalist>
                 </div>
 
                 <div>
@@ -1927,6 +1965,62 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
         onUpdateTemplates={onUpdateTemplates}
         currencySymbol={currencySymbol}
       />
+
+      {/* MODAL: CARRY OVER SURPLUS CONFIRMATION */}
+      <CarryOverModal
+        isOpen={isCarryOverModalOpen}
+        onClose={() => setIsCarryOverModalOpen(false)}
+        onConfirm={() => {
+          const currentIndex = periodList.indexOf(selectedPeriod);
+          const prevPeriod = periodList[currentIndex - 1];
+          const prevEntries = budget.entries.filter((e) => e.period === prevPeriod);
+          const incAct = prevEntries
+            .filter((e) => e.type === 'income')
+            .reduce((sum, e) => sum + (e.actualCost ?? e.amount ?? 0), 0);
+          const expAct = prevEntries
+            .filter((e) => e.type === 'expense' || e.type === 'saving')
+            .reduce((sum, e) => sum + (e.actualCost ?? e.amount ?? 0), 0);
+          const surplus = incAct - expAct;
+
+          onAddEntry({
+            year: budget.year,
+            period: selectedPeriod,
+            periodIndex: currentIndex,
+            date: new Date().toISOString().split('T')[0],
+            type: 'income',
+            category: 'Other',
+            item: `Carry-over from ${prevPeriod}`,
+            amount: surplus,
+            actualCost: surplus,
+            status: 'Paid',
+            description: `Carry-over from ${prevPeriod}`,
+            createdAt: new Date().toISOString(),
+          });
+        }}
+        surplus={
+          (function() {
+            const currentIndex = periodList.indexOf(selectedPeriod);
+            if (currentIndex <= 0) return 0;
+            const prevPeriod = periodList[currentIndex - 1];
+            const prevEntries = budget.entries.filter((e) => e.period === prevPeriod);
+            const incAct = prevEntries
+              .filter((e) => e.type === 'income')
+              .reduce((sum, e) => sum + (e.actualCost ?? e.amount ?? 0), 0);
+            const expAct = prevEntries
+              .filter((e) => e.type === 'expense' || e.type === 'saving')
+              .reduce((sum, e) => sum + (e.actualCost ?? e.amount ?? 0), 0);
+            return incAct - expAct;
+          })()
+        }
+        fromPeriod={
+          (function() {
+            const currentIndex = periodList.indexOf(selectedPeriod);
+            return currentIndex > 0 ? periodList[currentIndex - 1] : '';
+          })()
+        }
+        toPeriod={selectedPeriod}
+      />
+
 
     </div>
   );

@@ -133,6 +133,11 @@ export const DriveFilesManagerView: React.FC<DriveFilesManagerViewProps> = ({
                     <CheckCircle2 className="w-3 h-3" />
                     <span>Connected</span>
                   </span>
+                ) : driveStatus.isSessionExpired ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                    <AlertCircle className="w-3 h-3 text-amber-500" />
+                    <span>Session Expired</span>
+                  </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
                     <AlertCircle className="w-3 h-3" />
@@ -143,6 +148,8 @@ export const DriveFilesManagerView: React.FC<DriveFilesManagerViewProps> = ({
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 {driveStatus.isSignedIn
                   ? `Authenticated as ${driveStatus.userName || driveStatus.userEmail}. JSON database files are synced directly to your personal Google Drive.`
+                  : driveStatus.isSessionExpired
+                  ? 'Your Google Drive session has expired. Sign in again to renew cloud synchronization.'
                   : 'Connect your Google Drive to enable cloud persistence, automatic yearly JSON file creation, and multi-device access.'}
               </p>
             </div>
@@ -157,6 +164,14 @@ export const DriveFilesManagerView: React.FC<DriveFilesManagerViewProps> = ({
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${driveStatus.isSyncing ? 'animate-spin' : ''}`} />
                 <span>{driveStatus.isSyncing ? 'Syncing to Drive...' : 'Save & Sync All'}</span>
+              </button>
+            ) : driveStatus.isSessionExpired ? (
+              <button
+                onClick={onSignIn}
+                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-2 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Reconnect Google Drive</span>
               </button>
             ) : (
               <button

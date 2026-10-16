@@ -83,7 +83,6 @@ export const EXPENSE_CATEGORIES = [
 ];
 
 export const PAYMENT_METHODS = [
-  'Stay in ATM',
   'Cash',
   'Credit Card',
   'GCash Transfer',
@@ -144,7 +143,7 @@ export const DEFAULT_ITEM_TEMPLATES = [
   { id: 'tpl-hoa', type: 'expense', category: 'Liabilities', item: 'HOA monthly dues', defaultEstimatedCost: 1000, defaultPaymentMethod: 'Cash' },
   { id: 'tpl-car-maint', type: 'expense', category: 'Car', item: 'Car Maintenance', defaultEstimatedCost: 5000, defaultPaymentMethod: 'Bank Transfer' },
   { id: 'tpl-savings', type: 'saving', category: 'Savings', item: 'Savings', defaultEstimatedCost: 10000, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-buffer', type: 'expense', category: 'Budget', item: 'Buffer', defaultEstimatedCost: 3000, defaultPaymentMethod: 'Stay in ATM' },
+  { id: 'tpl-buffer', type: 'expense', category: 'Budget', item: 'Buffer', defaultEstimatedCost: 3000, defaultPaymentMethod: 'Cash' },
   { id: 'tpl-dog', type: 'expense', category: 'Budget', item: 'Dog food and others', defaultEstimatedCost: 1000, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
 ] as const;
 

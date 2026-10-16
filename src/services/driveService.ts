@@ -7,6 +7,56 @@ export const getBudgetFileName = (year: number) => `capitalflow_budget_${year}.j
 export const SAVINGS_LEDGER_FILE_NAME = 'capitalflow_savings_ledger.json';
 
 /**
+ * Custom error thrown when a Google Drive OAuth session has expired or is unauthorized (HTTP 401)
+ */
+export class DriveSessionExpiredError extends Error {
+  constructor(message: string = 'Google Drive session has expired. Please sign in again.') {
+    super(message);
+    this.name = 'DriveSessionExpiredError';
+  }
+}
+
+/**
+ * Checks if an error is due to an expired or invalid Google Drive session
+ */
+export function isSessionExpiredError(error: any): boolean {
+  if (!error) return false;
+  if (error instanceof DriveSessionExpiredError || error?.name === 'DriveSessionExpiredError') {
+    return true;
+  }
+  const msg = typeof error === 'string' ? error : error?.message || '';
+  return (
+    msg.includes('401') ||
+    msg.includes('UNAUTHENTICATED') ||
+    msg.includes('Invalid Credentials') ||
+    msg.includes('invalid_grant') ||
+    msg.includes('auth/expired-action-code') ||
+    msg.includes('session has expired') ||
+    msg.includes('token expired')
+  );
+}
+
+/**
+ * Proactively verifies if the current access token is valid and not expired
+ */
+export async function validateDriveToken(accessToken: string): Promise<boolean> {
+  if (!accessToken) return false;
+  try {
+    const response = await fetch(`${DRIVE_API_URL}/about?fields=user`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    if (response.status === 401 || response.status === 403) {
+      return false;
+    }
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Searches for a file by exact name in Google Drive
  */
 export async function findDriveFile(accessToken: string, fileName: string): Promise<DriveFileInfo | null> {
@@ -19,6 +69,10 @@ export async function findDriveFile(accessToken: string, fileName: string): Prom
       },
     }
   );
+
+  if (response.status === 401) {
+    throw new DriveSessionExpiredError();
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -46,6 +100,10 @@ export async function listCapitalFlowFiles(accessToken: string): Promise<DriveFi
     }
   );
 
+  if (response.status === 401) {
+    throw new DriveSessionExpiredError();
+  }
+
   if (!response.ok) {
     throw new Error(`Failed to list files from Google Drive: ${response.statusText}`);
   }
@@ -63,6 +121,10 @@ export async function downloadJsonFile<T>(accessToken: string, fileId: string): 
       Authorization: `Bearer ${accessToken}`,
     },
   });
+
+  if (response.status === 401) {
+    throw new DriveSessionExpiredError();
+  }
 
   if (!response.ok) {
     throw new Error(`Failed to download file from Google Drive: ${response.statusText}`);
@@ -96,6 +158,10 @@ export async function saveJsonToDrive<T>(
       }
     );
 
+    if (response.status === 401) {
+      throw new DriveSessionExpiredError();
+    }
+
     if (response.ok) {
       const updatedMeta = await response.json();
       return {
@@ -121,6 +187,10 @@ export async function saveJsonToDrive<T>(
         body: content,
       }
     );
+
+    if (response.status === 401) {
+      throw new DriveSessionExpiredError();
+    }
 
     if (!response.ok) {
       const err = await response.text();
@@ -167,6 +237,10 @@ export async function saveJsonToDrive<T>(
     }
   );
 
+  if (createResponse.status === 401) {
+    throw new DriveSessionExpiredError();
+  }
+
   if (!createResponse.ok) {
     const err = await createResponse.text();
     throw new Error(`Failed to create new file in Google Drive: ${err}`);
@@ -190,6 +264,10 @@ export async function deleteDriveFile(accessToken: string, fileId: string): Prom
       Authorization: `Bearer ${accessToken}`,
     },
   });
+
+  if (response.status === 401) {
+    throw new DriveSessionExpiredError();
+  }
 
   return response.ok;
 }
