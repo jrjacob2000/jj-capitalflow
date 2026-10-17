@@ -44,7 +44,7 @@ import {
   isSessionExpiredError,
   validateDriveToken,
 } from './services/driveService';
-import { CheckCircle2, AlertCircle, RefreshCw, Calendar, X } from 'lucide-react';
+import { CheckCircle2, AlertCircle, RefreshCw, Calendar, X, Cloud } from 'lucide-react';
 
 export default function App() {
   const [currentYear, setCurrentYear] = useState<number>(2026);
@@ -93,6 +93,27 @@ export default function App() {
   // Google Drive Session Expired Modal State
   const [isSessionExpiredModalOpen, setIsSessionExpiredModalOpen] = useState<boolean>(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  const [isSyncReminderDismissed, setIsSyncReminderDismissed] = useState<boolean>(false);
+
+  // Reset reminder dismissal whenever new unsaved changes occur
+  useEffect(() => {
+    if (hasUnsavedChanges) {
+      setIsSyncReminderDismissed((prev) => (prev ? false : prev));
+    }
+  }, [hasUnsavedChanges]);
+
+  // Browser window/tab close guard when changes are unsaved to Google Drive
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges && driveStatus.isSignedIn) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges, driveStatus.isSignedIn]);
 
   // Create New Year Modal State
   const [isNewYearModalOpen, setIsNewYearModalOpen] = useState<boolean>(false);
@@ -1393,6 +1414,42 @@ export default function App() {
     });
   };
 
+  // Direct 1-click sync without modal prompt (for floating reminder banner)
+  const triggerDirectSyncAll = async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      handleSessionExpired('Google Drive session expired. Please sign in again.');
+      return;
+    }
+    try {
+      setDriveStatus((p) => ({ ...p, isSyncing: true }));
+      const latestTemplate = FinanceStorageService.loadLocalTemplateData(budget);
+      const budgetRes = await FinanceStorageService.syncBudgetToDrive(token, budget);
+      const templateRes = await FinanceStorageService.syncTemplateToDrive(token, latestTemplate);
+      const ledgerRes = await FinanceStorageService.syncLedgerToDrive(token, ledger);
+      const files = await FinanceStorageService.fetchDriveFiles(token);
+      setDriveFiles(files);
+      setDriveStatus((p) => ({
+        ...p,
+        isSyncing: false,
+        lastSyncedAt: new Date().toLocaleTimeString(),
+        budgetFileId: budgetRes.fileId,
+        templateFileId: templateRes.fileId,
+        savingsFileId: ledgerRes.fileId,
+        folderId: budgetRes.folderId || templateRes.folderId || ledgerRes.folderId || p.folderId,
+      }));
+      setHasUnsavedChanges(false);
+      showToast(`Synced all files into "${CAPITALFLOW_DRIVE_FOLDER_NAME}" in Google Drive!`);
+    } catch (err: any) {
+      if (isSessionExpiredError(err)) {
+        handleSessionExpired('Google Drive session expired while syncing. Please sign in again.');
+        return;
+      }
+      setDriveStatus((p) => ({ ...p, isSyncing: false, error: err.message }));
+      showToast(`Sync failed: ${err.message}`, 'error');
+    }
+  };
+
   const triggerOrganizeDriveFolder = async () => {
     const token = await getAccessToken();
     if (!token) {
@@ -1442,9 +1499,67 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-100/60 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans flex flex-col antialiased">
       
+      {/* Floating Notification Banner: Unsaved Local Changes not yet saved to Drive */}
+      {hasUnsavedChanges && !isSyncReminderDismissed && (
+        <div className="fixed bottom-6 left-4 right-4 sm:left-6 sm:right-auto z-40 max-w-md animate-in slide-in-from-bottom-5 duration-300">
+          <div className="bg-slate-900/95 dark:bg-slate-800/95 backdrop-blur-md text-white rounded-2xl p-3.5 sm:p-4 shadow-2xl border border-amber-500/40 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+                <Cloud className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                    <span>Unsaved to Drive</span>
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                  </h4>
+                </div>
+                <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">
+                  {driveStatus.isSignedIn
+                    ? 'Local edits not yet backed up to Google Drive.'
+                    : 'Local edits saved on device. Sign in to back up.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {driveStatus.isSignedIn ? (
+                <button
+                  type="button"
+                  onClick={triggerDirectSyncAll}
+                  disabled={driveStatus.isSyncing}
+                  className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-indigo-600/30 transition-all cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${driveStatus.isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{driveStatus.isSyncing ? 'Syncing...' : 'Save to Drive'}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSignInWithGoogle}
+                  disabled={driveStatus.isSyncing}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-emerald-600/30 transition-all cursor-pointer"
+                >
+                  <span>Sign In &amp; Save</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setIsSyncReminderDismissed(true)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                title="Dismiss reminder until next edit"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-5 duration-200">
+        <div className="fixed bottom-24 right-4 sm:bottom-6 sm:right-6 z-50 animate-in slide-in-from-bottom-5 duration-200">
           <div
             className={`px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold text-white ${
               toastMessage.type === 'error'

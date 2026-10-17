@@ -233,10 +233,19 @@ export const Header: React.FC<HeaderProps> = ({
                   )}
 
                   <div className="flex items-center gap-1.5 text-xs">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${
+                        hasUnsavedChanges ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'
+                      }`}
+                    />
                     <span className="font-medium text-slate-700 dark:text-slate-200 max-w-[100px] truncate hidden lg:inline">
                       {driveStatus.userName || driveStatus.userEmail || 'Connected'}
                     </span>
+                    {hasUnsavedChanges && (
+                      <span className="hidden sm:inline-block px-1.5 py-0.5 text-[9px] font-bold uppercase rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300">
+                        Unsaved
+                      </span>
+                    )}
                   </div>
                   <ChevronDown className="w-3 h-3 text-slate-400" />
                 </button>

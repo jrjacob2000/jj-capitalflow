@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   Plus,
   Filter,
@@ -112,6 +112,10 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
   const defaultPeriod = frequency === 'monthly' ? currentMonthName : currentBiWeeklyPeriod;
   const [selectedPeriodFilter, setSelectedPeriodFilter] = useState<string>(defaultPeriod);
 
+  const handleSelectPeriodFilter = useCallback((p: string) => {
+    setSelectedPeriodFilter(p);
+  }, []);
+
   // Sync default period when frequency changes
   useEffect(() => {
     if (frequency === 'monthly') {
@@ -171,9 +175,11 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
   const expenseCategories = budget.customCategories?.expense || [...EXPENSE_CATEGORIES];
   const incomeCategories = budget.customCategories?.income || [...INCOME_CATEGORIES];
   const savingCategories = budget.customCategories?.saving || [...SAVING_CATEGORIES];
-  const itemTemplates = budget.isPersonalizedTemplate
-    ? stripDefaultStarterTemplates(budget.itemTemplates)
-    : [];
+  const itemTemplates = useMemo(() => {
+    return budget.isPersonalizedTemplate
+      ? stripDefaultStarterTemplates(budget.itemTemplates)
+      : [];
+  }, [budget.isPersonalizedTemplate, budget.itemTemplates]);
 
   // Modal period mode and selection
   const [modalFrequency, setModalFrequency] = useState<EntryFrequency>(frequency);
@@ -208,10 +214,18 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
   // Sync splitter template amounts whenever user personalizes itemTemplates
   useEffect(() => {
     setSplitterTemplateAmounts((prev) => {
+      let changed = false;
       const next: Record<string, string> = {};
       itemTemplates.forEach((t) => {
-        next[t.id] = prev[t.id] !== undefined ? prev[t.id] : String(t.defaultEstimatedCost || 0);
+        const val = prev[t.id] !== undefined ? prev[t.id] : String(t.defaultEstimatedCost || 0);
+        next[t.id] = val;
+        if (prev[t.id] !== val) {
+          changed = true;
+        }
       });
+      if (!changed && Object.keys(prev).length === Object.keys(next).length) {
+        return prev;
+      }
       return next;
     });
   }, [itemTemplates]);
@@ -272,20 +286,12 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
       setModalPeriod(targetPeriod);
       setFormDate(getRepresentativeDateForPeriod(targetPeriod, frequency, budget.year));
       
-      const firstTpl = itemTemplates.find((t) => t.type === 'expense');
-      if (firstTpl && firstTpl.defaultEstimatedCost > 0) {
-        setSelectedTemplateId(firstTpl.id);
-        setFormType('expense');
-        setFormCategory(firstTpl.category);
-        setFormItem(firstTpl.item);
-        setFormDescription(firstTpl.item);
-        setFormAmount(String(firstTpl.defaultEstimatedCost));
-      } else {
-        setFormType('expense');
-        setFormItem('');
-        setFormAmount('');
-        setFormDescription('');
-      }
+      setSelectedTemplateId('');
+      setFormType('expense');
+      setFormCategory(expenseCategories[0] || 'Budget');
+      setFormItem('');
+      setFormAmount('');
+      setFormDescription('');
     }
     setIsAddModalOpen(true);
   };
@@ -603,7 +609,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
           budget={budget}
           accounts={accounts}
           selectedPeriod={selectedPeriodFilter === 'all' ? defaultPeriod : selectedPeriodFilter}
-          onSelectPeriod={(p) => setSelectedPeriodFilter(p)}
+          onSelectPeriod={handleSelectPeriodFilter}
           frequency={frequency}
           onChangeFrequency={onChangeFrequency}
           onAddEntry={onAddEntry}

@@ -116,14 +116,17 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [isRowAction, setIsRowAction] = useState<boolean>(false);
+  const [entrySourceMode, setEntrySourceMode] = useState<'unplanned' | 'template'>('unplanned');
 
   // Active Categories & Templates (from budget or defaults)
   const expenseCategories = budget.customCategories?.expense || [...EXPENSE_CATEGORIES];
   const incomeCategories = budget.customCategories?.income || [...INCOME_CATEGORIES];
   const savingCategories = budget.customCategories?.saving || [...SAVING_CATEGORIES];
-  const itemTemplates: BudgetItemTemplate[] = budget.isPersonalizedTemplate
-    ? stripDefaultStarterTemplates(budget.itemTemplates)
-    : [];
+  const itemTemplates: BudgetItemTemplate[] = useMemo(() => {
+    return budget.isPersonalizedTemplate
+      ? stripDefaultStarterTemplates(budget.itemTemplates)
+      : [];
+  }, [budget.isPersonalizedTemplate, budget.itemTemplates]);
 
   // Helper to find estimated cost for any item name or category
   const getEstimateForItem = (itemName: string, catName?: string, type?: 'income' | 'expense' | 'saving'): number => {
@@ -185,24 +188,26 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
 
 
 
-  const currentMonthName = MONTH_NAMES[new Date().getMonth()] || 'Jan';
-  const currentBiWeeklyPeriod = `${currentMonthName}-${new Date().getDate() <= 15 ? 'P1' : 'P2'}`;
+  const currentMonthName = useMemo(() => MONTH_NAMES[new Date().getMonth()] || 'Jan', []);
+  const currentBiWeeklyPeriod = useMemo(
+    () => `${currentMonthName}-${new Date().getDate() <= 15 ? 'P1' : 'P2'}`,
+    [currentMonthName]
+  );
 
   // Ensure selectedPeriod matches frequency
   useEffect(() => {
     const validList = frequency === 'monthly' ? MONTH_NAMES : BIWEEKLY_PERIODS.map((p) => p.id);
     if (!validList.includes(selectedPeriod)) {
-      if (frequency === 'monthly') {
-        onSelectPeriod(currentMonthName);
-      } else {
-        onSelectPeriod(currentBiWeeklyPeriod);
+      const fallback = frequency === 'monthly' ? currentMonthName : currentBiWeeklyPeriod;
+      if (selectedPeriod !== fallback) {
+        onSelectPeriod(fallback);
       }
     }
   }, [frequency, selectedPeriod, currentMonthName, currentBiWeeklyPeriod, onSelectPeriod]);
 
   // Keep modalPeriod in sync when selectedPeriod changes
   useEffect(() => {
-    setModalPeriod(selectedPeriod);
+    setModalPeriod((prev) => (prev !== selectedPeriod ? selectedPeriod : prev));
   }, [selectedPeriod]);
 
   const selectedPeriodBtnRef = useRef<HTMLButtonElement>(null);
@@ -703,6 +708,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
     setFormToBeWithdrawn(Boolean(row.toBeWithdrawn));
     setFormSavingAccountId(row.savingAccountId || accounts[0]?.id || '');
     setSelectedTemplateId(row.templateId || '');
+    setEntrySourceMode(row.templateId || row.isVirtualEstimate || (row.estimatedCost && row.estimatedCost > 0) ? 'template' : 'unplanned');
     setSaveToTemplate(false);
     setIsAddModalOpen(true);
   };
@@ -745,7 +751,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
     });
   };
 
-  // Open modal for new entry button (+ Income, + Expense, + Saving)
+  // Open modal for new entry button (+ Add Income, + Add Expense, + Add Fund)
   const handleOpenAdd = (type: 'income' | 'expense' | 'saving') => {
     setIsRowAction(false);
     setEditingEntryId(null);
@@ -761,34 +767,21 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
       bankTransfer: '',
     });
 
-    const firstTpl = itemTemplates.find((t) => t.type === type);
-    if (firstTpl) {
-      setSelectedTemplateId(firstTpl.id);
-      setFormCategory(firstTpl.category);
-      setFormItem(firstTpl.item);
-      const estCost = firstTpl.defaultEstimatedCost || 0;
-      setFormEstimated(estCost > 0 ? String(estCost) : '');
-      setFormActual(estCost > 0 ? String(estCost) : '');
-      if (firstTpl.defaultPaymentMethod) {
-        setFormPaymentMethod(firstTpl.defaultPaymentMethod);
-      }
-      setFormToBeWithdrawn(Boolean(firstTpl.toBeWithdrawn));
-    } else {
-      setSelectedTemplateId('');
-      setFormCategory(
-        type === 'income'
-          ? incomeCategories[0] || 'Salary'
-          : type === 'saving'
-          ? savingCategories[0] || 'Savings'
-          : expenseCategories[0] || 'Budget'
-      );
-      setFormItem('');
-      setFormEstimated('');
-      setFormActual('');
-      setFormPaymentMethod('Bank Transfer');
-      setFormToBeWithdrawn(false);
-    }
-
+    // Default to Unplanned mode for quick, friction-free ad-hoc entry
+    setEntrySourceMode('unplanned');
+    setSelectedTemplateId('');
+    setFormCategory(
+      type === 'income'
+        ? incomeCategories[0] || 'Salary'
+        : type === 'saving'
+        ? savingCategories[0] || 'Savings'
+        : expenseCategories[0] || 'Food & Dining'
+    );
+    setFormItem('');
+    setFormEstimated('0');
+    setFormActual('');
+    setFormPaymentMethod('Bank Transfer');
+    setFormToBeWithdrawn(false);
     setFormStatus('Paid');
     setFormReference('');
     setSaveToTemplate(false);
@@ -798,8 +791,13 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
   // When template is selected in modal:
   const handleSelectTemplate = (templateId: string) => {
     setSelectedTemplateId(templateId);
-    if (!templateId) return;
+    if (!templateId) {
+      setEntrySourceMode('unplanned');
+      setFormEstimated('0');
+      return;
+    }
 
+    setEntrySourceMode('template');
     const tpl = itemTemplates.find((t) => t.id === templateId);
     if (!tpl) return;
 
@@ -814,12 +812,18 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
     if (tpl.defaultPaymentMethod) {
       setFormPaymentMethod(tpl.defaultPaymentMethod);
     }
-    setFormToBeWithdrawn(Boolean(tpl.toBeWithdrawn));
+    if (tpl.defaultSavingAccountId) {
+      setFormSavingAccountId(tpl.defaultSavingAccountId);
+    }
   };
 
-  // When user types or selects a line item: auto-populate estimate if matching
+  // When user types or selects a line item: auto-populate estimate if matching (only in template mode)
   const handleItemChange = (newItemName: string) => {
     setFormItem(newItemName);
+    // If user is adding an unplanned item, do not auto-fill estimate or tie to a template!
+    if (entrySourceMode === 'unplanned') {
+      return;
+    }
     const est = getEstimateForItem(newItemName, formCategory, modalType);
     if (est > 0) {
       setFormEstimated(String(est));
@@ -833,7 +837,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
     if (tpl) {
       setFormCategory(tpl.category);
       if (tpl.defaultPaymentMethod) setFormPaymentMethod(tpl.defaultPaymentMethod);
-      if (tpl.toBeWithdrawn !== undefined) setFormToBeWithdrawn(Boolean(tpl.toBeWithdrawn));
+      if (tpl.defaultSavingAccountId) setFormSavingAccountId(tpl.defaultSavingAccountId);
       setSelectedTemplateId(tpl.id);
     }
   };
@@ -1294,9 +1298,10 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
               <button
                 onClick={() => handleOpenAdd('income')}
                 className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
+                title="Add an income source for this period"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Custom Income</span>
+                <span>Add Income</span>
               </button>
             </div>
 
@@ -1341,7 +1346,11 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                         </td>
                         {/* ESTIMATE COLUMN */}
                         <td className="py-2.5 px-4 text-right font-bold text-slate-800 dark:text-slate-200 bg-emerald-50/20 dark:bg-emerald-950/10 border-b border-r border-slate-100 dark:border-slate-800">
-                          {currencySymbol}{formatNumber(est)}
+                          {est > 0 ? (
+                            `${currencySymbol}${formatNumber(est)}`
+                          ) : (
+                            <span className="text-slate-400 font-normal text-xs" title="Unplanned income (No baseline estimate)">—</span>
+                          )}
                         </td>
                         {/* ACTUAL COLUMN */}
                         <td className="py-2.5 px-4 text-right border-b border-r border-slate-100 dark:border-slate-800">
@@ -1459,13 +1468,24 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                   {unifiedExpenseRows.length} lines
                 </span>
               </div>
-              <button
-                onClick={() => handleOpenAdd('expense')}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Custom Line Item</span>
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => handleOpenAdd('expense')}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                  title="Add an expense item for this period"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Expense</span>
+                </button>
+                <button
+                  onClick={() => handleOpenAdd('saving')}
+                  className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                  title="Add a fund or savings allocation for this period"
+                >
+                  <PiggyBank className="w-3.5 h-3.5" />
+                  <span>Add Fund</span>
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto scrollbar-thin">
@@ -1586,7 +1606,11 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
 
                         {/* Column 3: Estimated Cost */}
                         <td className="py-2 px-3 text-right font-bold text-slate-800 dark:text-slate-200 bg-amber-50/20 dark:bg-amber-950/10 border-b border-r border-slate-100 dark:border-slate-800">
-                          {currencySymbol}{formatNumber(est)}
+                          {est > 0 ? (
+                            `${currencySymbol}${formatNumber(est)}`
+                          ) : (
+                            <span className="text-slate-400 font-normal text-xs" title="Unplanned entry (No baseline estimate)">—</span>
+                          )}
                         </td>
 
                         {/* Column 4: Actual Cost */}
@@ -1914,16 +1938,16 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                       type="button"
                       onClick={() => {
                         setModalType('expense');
-                        const firstTpl = itemTemplates.find((t) => t.type === 'expense');
-                        if (firstTpl) {
-                          setFormCategory(firstTpl.category);
-                          setFormItem(firstTpl.item);
-                          setFormEstimated(String(firstTpl.defaultEstimatedCost || ''));
-                          setFormActual(String(firstTpl.defaultEstimatedCost || ''));
-                          setSelectedTemplateId(firstTpl.id);
-                        } else {
+                        if (entrySourceMode === 'unplanned') {
                           setFormCategory(expenseCategories[0] || 'Budget');
-                          setSelectedTemplateId('');
+                        } else {
+                          const firstTpl = itemTemplates.find((t) => t.type === 'expense');
+                          if (firstTpl) {
+                            handleSelectTemplate(firstTpl.id);
+                          } else {
+                            setFormCategory(expenseCategories[0] || 'Budget');
+                            setSelectedTemplateId('');
+                          }
                         }
                       }}
                       className={`py-2 rounded-xl font-semibold border transition-all cursor-pointer ${
@@ -1938,16 +1962,16 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                       type="button"
                       onClick={() => {
                         setModalType('income');
-                        const firstTpl = itemTemplates.find((t) => t.type === 'income');
-                        if (firstTpl) {
-                          setFormCategory(firstTpl.category);
-                          setFormItem(firstTpl.item);
-                          setFormEstimated(String(firstTpl.defaultEstimatedCost || ''));
-                          setFormActual(String(firstTpl.defaultEstimatedCost || ''));
-                          setSelectedTemplateId(firstTpl.id);
-                        } else {
+                        if (entrySourceMode === 'unplanned') {
                           setFormCategory(incomeCategories[0] || 'Salary');
-                          setSelectedTemplateId('');
+                        } else {
+                          const firstTpl = itemTemplates.find((t) => t.type === 'income');
+                          if (firstTpl) {
+                            handleSelectTemplate(firstTpl.id);
+                          } else {
+                            setFormCategory(incomeCategories[0] || 'Salary');
+                            setSelectedTemplateId('');
+                          }
                         }
                       }}
                       className={`py-2 rounded-xl font-semibold border transition-all cursor-pointer ${
@@ -1962,16 +1986,16 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                       type="button"
                       onClick={() => {
                         setModalType('saving');
-                        const firstTpl = itemTemplates.find((t) => t.type === 'saving');
-                        if (firstTpl) {
-                          setFormCategory(firstTpl.category);
-                          setFormItem(firstTpl.item);
-                          setFormEstimated(String(firstTpl.defaultEstimatedCost || ''));
-                          setFormActual(String(firstTpl.defaultEstimatedCost || ''));
-                          setSelectedTemplateId(firstTpl.id);
-                        } else {
+                        if (entrySourceMode === 'unplanned') {
                           setFormCategory(savingCategories[0] || 'Savings');
-                          setSelectedTemplateId('');
+                        } else {
+                          const firstTpl = itemTemplates.find((t) => t.type === 'saving');
+                          if (firstTpl) {
+                            handleSelectTemplate(firstTpl.id);
+                          } else {
+                            setFormCategory(savingCategories[0] || 'Savings');
+                            setSelectedTemplateId('');
+                          }
                         }
                       }}
                       className={`py-2 rounded-xl font-semibold border transition-all cursor-pointer ${
@@ -1985,36 +2009,90 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                   </div>
                 </div>
 
-                {/* 4. ITEM SELECTION & PRE-POPULATED ESTIMATE SELECTOR */}
+                {/* 4. ITEM SELECTION & PRE-POPULATED ESTIMATE SELECTOR / UNPLANNED MODE */}
                 {!isRowAction && (
-                  <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 rounded-2xl border border-amber-200 dark:border-amber-800">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-[11px] font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                        <span>Choose Line Item (Auto-fills Estimated Cost)</span>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setIsManagerModalOpen(true)}
-                        className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer"
-                      >
-                        Manage Templates
-                      </button>
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        Item Source
+                      </span>
+                      <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEntrySourceMode('unplanned');
+                            setSelectedTemplateId('');
+                            setFormEstimated('0');
+                          }}
+                          className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            entrySourceMode === 'unplanned'
+                              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs font-bold'
+                              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          ✨ Unplanned / One-Off
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEntrySourceMode('template');
+                            const firstTpl = itemTemplates.find((t) => t.type === modalType);
+                            if (firstTpl) {
+                              handleSelectTemplate(firstTpl.id);
+                            }
+                          }}
+                          className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            entrySourceMode === 'template'
+                              ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-2xs font-bold'
+                              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          ⚡ From Estimate Template
+                        </button>
+                      </div>
                     </div>
-                    <select
-                      value={selectedTemplateId}
-                      onChange={(e) => handleSelectTemplate(e.target.value)}
-                      className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-amber-500 font-medium"
-                    >
-                      <option value="">⚡ Select Item Preset...</option>
-                      {itemTemplates
-                        .filter((t) => t.type === modalType && isTemplateValidForPeriod(t, frequency, modalPeriod))
-                        .map((tpl) => (
-                          <option key={tpl.id} value={tpl.id}>
-                            {tpl.item} ({tpl.category}) — Est: {currencySymbol}{formatNumber(tpl.defaultEstimatedCost)}
-                          </option>
-                        ))}
-                    </select>
+
+                    {entrySourceMode === 'template' ? (
+                      <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 rounded-2xl border border-amber-200 dark:border-amber-800 animate-in fade-in duration-150">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-[11px] font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                            <span>Choose Template Item (Auto-fills Estimated Cost)</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setIsManagerModalOpen(true)}
+                            className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer"
+                          >
+                            Manage Templates
+                          </button>
+                        </div>
+                        <select
+                          value={selectedTemplateId}
+                          onChange={(e) => handleSelectTemplate(e.target.value)}
+                          className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                        >
+                          <option value="">⚡ Select Item Preset...</option>
+                          {itemTemplates
+                            .filter((t) => t.type === modalType && isTemplateValidForPeriod(t, frequency, modalPeriod))
+                            .map((tpl) => (
+                              <option key={tpl.id} value={tpl.id}>
+                                {tpl.item} ({tpl.category}) — Est: {currencySymbol}{formatNumber(tpl.defaultEstimatedCost)}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="px-3.5 py-2 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-xl border border-indigo-200/80 dark:border-indigo-800/60 text-xs text-indigo-800 dark:text-indigo-300 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                          <span className="font-semibold">Unplanned Entry:</span>
+                          <span className="text-slate-600 dark:text-slate-400">
+                            Only Category, Item name, and Actual cost are required.
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2065,65 +2143,120 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                 </div>
 
                 {/* 6. ESTIMATED COST & ACTUAL COST */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800/60">
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-slate-800 dark:text-slate-200 font-bold flex items-center gap-1">
-                        <span>Estimated Cost ({currencySymbol})</span>
+                {entrySourceMode === 'unplanned' ? (
+                  <div className="space-y-2">
+                    <div className="p-3.5 bg-rose-50/60 dark:bg-rose-950/20 rounded-xl border border-rose-200 dark:border-rose-800/60">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                          {modalType === 'income' ? 'Actual Amount Received' : 'Actual Amount Paid'} ({currencySymbol})
+                        </label>
+                        <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400">
+                          Required
+                        </span>
+                      </div>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        required
+                        placeholder="0.00"
+                        value={formActual}
+                        onChange={(e) => setFormActual(e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-700 rounded-xl font-mono font-bold text-slate-900 dark:text-white text-base focus:ring-2 focus:ring-rose-500 outline-none"
+                      />
+                      <div className="flex items-center justify-between mt-1 text-[11px] text-slate-500">
+                        <span>Baseline Estimate: <strong className="font-mono text-slate-600 dark:text-slate-400">₱0.00 (Unplanned)</strong></span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEntrySourceMode('template');
+                            const firstTpl = itemTemplates.find((t) => t.type === modalType);
+                            if (firstTpl) handleSelectTemplate(firstTpl.id);
+                          }}
+                          className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                        >
+                          Have a planned estimate?
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="px-3 py-2 bg-amber-50/40 dark:bg-amber-950/20 rounded-xl border border-amber-200/70 dark:border-amber-800/50 flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="saveToTemplateSheetCheckbox"
+                        checked={saveToTemplate}
+                        onChange={(e) => setSaveToTemplate(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded text-amber-600 accent-amber-600 cursor-pointer shrink-0"
+                      />
+                      <label
+                        htmlFor="saveToTemplateSheetCheckbox"
+                        className="text-[11px] text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
+                      >
+                        Also save this new item to recurring Estimate Budget Template for future periods
                       </label>
                     </div>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="e.g. 3500"
-                      value={formEstimated}
-                      onChange={(e) => setFormEstimated(e.target.value)}
-                      className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-xl font-mono font-bold text-slate-900 dark:text-white text-sm"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      From your personalized estimate template.
-                    </p>
                   </div>
-
-                  <div className="p-3 bg-rose-50/50 dark:bg-rose-950/20 rounded-xl border border-rose-200 dark:border-rose-800/60">
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-slate-800 dark:text-slate-200 font-bold">
-                        Actual Cost ({currencySymbol})
-                      </label>
-                      <span className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold">
-                        Recorded Payment
-                      </span>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800/60">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-800 dark:text-slate-200 font-bold flex items-center gap-1">
+                          <span>Estimated Cost ({currencySymbol})</span>
+                        </label>
+                      </div>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="e.g. 3500"
+                        value={formEstimated}
+                        onChange={(e) => setFormEstimated(e.target.value)}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-xl font-mono font-bold text-slate-900 dark:text-white text-sm"
+                      />
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        From your personalized estimate template.
+                      </p>
                     </div>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="0.00"
-                      value={formActual}
-                      onChange={(e) => setFormActual(e.target.value)}
-                      className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-700 rounded-xl font-mono font-bold text-slate-900 dark:text-white text-sm"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      Enter actual amount (0 is accepted).
-                    </p>
-                  </div>
 
-                  <div className="sm:col-span-2 px-3 py-2 bg-amber-50/40 dark:bg-amber-950/20 rounded-xl border border-amber-200/70 dark:border-amber-800/50 flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="saveToTemplateSheetCheckbox"
-                      checked={saveToTemplate}
-                      onChange={(e) => setSaveToTemplate(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded text-amber-600 accent-amber-600 cursor-pointer shrink-0"
-                    />
-                    <label
-                      htmlFor="saveToTemplateSheetCheckbox"
-                      className="text-[11px] text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
-                    >
-                      Save this item &amp; estimated cost to my personal recurring Estimate Budget Template (syncs to Drive)
-                    </label>
+                    <div className="p-3 bg-rose-50/50 dark:bg-rose-950/20 rounded-xl border border-rose-200 dark:border-rose-800/60">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-800 dark:text-slate-200 font-bold">
+                          Actual Cost ({currencySymbol})
+                        </label>
+                        <span className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold">
+                          Recorded Payment
+                        </span>
+                      </div>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={formActual}
+                        onChange={(e) => setFormActual(e.target.value)}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-700 rounded-xl font-mono font-bold text-slate-900 dark:text-white text-sm"
+                      />
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        Enter actual amount (0 is accepted).
+                      </p>
+                    </div>
+
+                    <div className="sm:col-span-2 px-3 py-2 bg-amber-50/40 dark:bg-amber-950/20 rounded-xl border border-amber-200/70 dark:border-amber-800/50 flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="saveToTemplateSheetCheckbox"
+                        checked={saveToTemplate}
+                        onChange={(e) => setSaveToTemplate(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded text-amber-600 accent-amber-600 cursor-pointer shrink-0"
+                      />
+                      <label
+                        htmlFor="saveToTemplateSheetCheckbox"
+                        className="text-[11px] text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
+                      >
+                        Save this item &amp; estimated cost to my personal recurring Estimate Budget Template (syncs to Drive)
+                      </label>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* 7. PAYMENT METHOD / CHANNEL */}
                 {modalType !== 'income' && (
@@ -2258,21 +2391,6 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
                   />
                 </div>
-
-                {modalType === 'expense' && (
-                  <div className="flex items-center gap-2 pt-1">
-                    <input
-                      type="checkbox"
-                      id="toBeWithdrawn"
-                      checked={formToBeWithdrawn}
-                      onChange={(e) => setFormToBeWithdrawn(e.target.checked)}
-                      className="w-4 h-4 rounded text-indigo-600 accent-indigo-600"
-                    />
-                    <label htmlFor="toBeWithdrawn" className="text-slate-700 dark:text-slate-300 font-medium">
-                      Include in ATM / Cash Withdrawal list (for cash remittances &amp; allowances)
-                    </label>
-                  </div>
-                )}
               </form>
             </div>
 

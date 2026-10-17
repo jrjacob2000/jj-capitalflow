@@ -1224,21 +1224,6 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
                 </div>
               )}
 
-              {tplType === 'expense' && (
-                <div className="flex items-center gap-2 pt-1">
-                  <input
-                    type="checkbox"
-                    id="tplWithdraw"
-                    checked={tplWithdraw}
-                    onChange={(e) => setTplWithdraw(e.target.checked)}
-                    className="w-4 h-4 rounded text-indigo-600 accent-indigo-600"
-                  />
-                  <label htmlFor="tplWithdraw" className="text-slate-700 dark:text-slate-300 font-medium">
-                    Include in ATM / Cash Withdrawal list (for cash remittances)
-                  </label>
-                </div>
-              )}
-
               <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
