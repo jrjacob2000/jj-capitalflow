@@ -121,7 +121,9 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
   const expenseCategories = budget.customCategories?.expense || [...EXPENSE_CATEGORIES];
   const incomeCategories = budget.customCategories?.income || [...INCOME_CATEGORIES];
   const savingCategories = budget.customCategories?.saving || [...SAVING_CATEGORIES];
-  const itemTemplates: BudgetItemTemplate[] = budget.itemTemplates || [...DEFAULT_ITEM_TEMPLATES];
+  const itemTemplates: BudgetItemTemplate[] = Array.isArray(budget.itemTemplates)
+    ? budget.itemTemplates
+    : [...DEFAULT_ITEM_TEMPLATES];
 
   // Helper to find estimated cost for any item name or category
   const getEstimateForItem = (itemName: string, catName?: string, type?: 'income' | 'expense' | 'saving'): number => {
@@ -179,6 +181,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
   );
   const [formToBeWithdrawn, setFormToBeWithdrawn] = useState<boolean>(false);
   const [formSavingAccountId, setFormSavingAccountId] = useState<string>(accounts[0]?.id || '');
+  const [saveToTemplate, setSaveToTemplate] = useState<boolean>(false);
 
 
 
@@ -610,6 +613,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
     setFormToBeWithdrawn(Boolean(row.toBeWithdrawn));
     setFormSavingAccountId(row.savingAccountId || accounts[0]?.id || '');
     setSelectedTemplateId(row.templateId || '');
+    setSaveToTemplate(false);
     setIsAddModalOpen(true);
   };
 
@@ -692,6 +696,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
 
     setFormStatus('Paid');
     setFormReference('');
+    setSaveToTemplate(false);
     setIsAddModalOpen(true);
   };
 
@@ -802,6 +807,52 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
       savingAccountName: modalType === 'saving' ? selectedAcc?.name : undefined,
     };
 
+    // Auto-save or update personalized Estimate Budget Template if requested or if virtual template estimate changed
+    const trimmedItem = formItem.trim() || formCategory;
+    if (trimmedItem && (saveToTemplate || (selectedTemplateId && estNum > 0))) {
+      const existingById = selectedTemplateId
+        ? itemTemplates.find((t) => t.id === selectedTemplateId)
+        : undefined;
+      const existingByName = itemTemplates.find(
+        (t) => t.item.toLowerCase() === trimmedItem.toLowerCase() && t.type === modalType
+      );
+      const targetTpl = existingById || existingByName;
+
+      if (targetTpl) {
+        if (
+          saveToTemplate ||
+          targetTpl.defaultEstimatedCost !== estNum ||
+          targetTpl.category !== formCategory ||
+          targetTpl.item !== trimmedItem
+        ) {
+          const updatedTemplates = itemTemplates.map((t) =>
+            t.id === targetTpl.id
+              ? {
+                  ...t,
+                  category: formCategory,
+                  item: trimmedItem,
+                  defaultEstimatedCost: estNum,
+                  defaultPaymentMethod: formPaymentMethod,
+                  toBeWithdrawn: formToBeWithdrawn,
+                }
+              : t
+          );
+          onUpdateTemplates(updatedTemplates);
+        }
+      } else if (saveToTemplate) {
+        const newTpl: BudgetItemTemplate = {
+          id: `tpl-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          type: modalType,
+          category: formCategory,
+          item: trimmedItem,
+          defaultEstimatedCost: estNum,
+          defaultPaymentMethod: formPaymentMethod,
+          toBeWithdrawn: formToBeWithdrawn,
+        };
+        onUpdateTemplates([...itemTemplates, newTpl]);
+      }
+    }
+
     if (editingEntryId) {
       onUpdateEntry(editingEntryId, entryPayload);
     } else {
@@ -897,7 +948,9 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                 </span>
                 <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold whitespace-nowrap shrink-0 leading-none">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                  Estimates Active
+                  {budget.isPersonalizedTemplate
+                    ? `Personalized Template (${itemTemplates.length} items)`
+                    : `Default Starter Template (${itemTemplates.length} items)`}
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -927,10 +980,10 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
             <button
               onClick={() => handleOpenAdd('saving')}
               className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-              title="Add saving entry to accumulate in separate savings ledger"
+              title="Add funds entry to accumulate in separate funds ledger"
             >
               <PiggyBank className="w-3.5 h-3.5" />
-              <span>Saving</span>
+              <span>Funds</span>
             </button>
 
             <button
@@ -1390,7 +1443,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                             <span className="truncate">{exp.item}</span>
                             {isSaving && (
                               <span className="px-1 py-0.2 rounded text-[9px] bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-semibold shrink-0">
-                                Ledger
+                                Funds
                               </span>
                             )}
                           </div>
@@ -1692,7 +1745,11 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
-                    {editingEntryId ? 'Update Entry' : `New ${modalType.charAt(0).toUpperCase() + modalType.slice(1)}`}
+                    {editingEntryId
+                      ? 'Update Entry'
+                      : modalType === 'saving'
+                      ? 'New Funds'
+                      : `New ${modalType.charAt(0).toUpperCase() + modalType.slice(1)}`}
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
                     Recording for {modalPeriod} ({budget.year})
@@ -1788,7 +1845,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                           : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
                       }`}
                     >
-                      Saving (To Ledger)
+                      Funds
                     </button>
                   </div>
                 </div>
@@ -1864,7 +1921,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                     <input
                       type="text"
                       required
-                      placeholder="e.g. Meralco, Kath allowance, Pag-ibig"
+                      placeholder="e.g. Electricity Bill, Groceries & Market, Emergency Fund"
                       value={formItem}
                       onChange={(e) => handleItemChange(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-medium"
@@ -1889,7 +1946,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                       className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-xl font-mono font-bold text-slate-900 dark:text-white text-sm"
                     />
                     <p className="text-[10px] text-slate-500 mt-1">
-                      From your saved estimated budget.
+                      From your personalized estimate template.
                     </p>
                   </div>
 
@@ -1914,6 +1971,22 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                     <p className="text-[10px] text-slate-500 mt-1">
                       Enter actual amount (0 is accepted).
                     </p>
+                  </div>
+
+                  <div className="sm:col-span-2 px-3 py-2 bg-amber-50/40 dark:bg-amber-950/20 rounded-xl border border-amber-200/70 dark:border-amber-800/50 flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="saveToTemplateSheetCheckbox"
+                      checked={saveToTemplate}
+                      onChange={(e) => setSaveToTemplate(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded text-amber-600 accent-amber-600 cursor-pointer shrink-0"
+                    />
+                    <label
+                      htmlFor="saveToTemplateSheetCheckbox"
+                      className="text-[11px] text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
+                    >
+                      Save this item &amp; estimated cost to my personal recurring Estimate Budget Template (syncs to Drive)
+                    </label>
                   </div>
                 </div>
 
@@ -1998,7 +2071,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                   <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 rounded-xl border border-indigo-200 space-y-1">
                     <div className="flex items-center gap-1.5 text-indigo-700 dark:text-indigo-300 font-semibold">
                       <PiggyBank className="w-4 h-4" />
-                      <span>Destination Savings Ledger Account</span>
+                      <span>Destination Fund Account</span>
                     </div>
                     <select
                       value={formSavingAccountId}
@@ -2152,6 +2225,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
           })()
         }
         toPeriod={selectedPeriod}
+        currencySymbol={currencySymbol}
       />
 
 

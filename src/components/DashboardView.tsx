@@ -68,12 +68,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const savingsRate = totalIncome > 0 ? (totalSavings / totalIncome) * 100 : 0;
   const netCashflow = totalIncome - totalExpenses - totalSavings;
 
-  // Latest capital from ledger
+  // Latest capital from ledger (running total or sum of account balances)
+  const accountsBalanceSum = ledger.accounts.reduce((sum, a) => sum + (a.balance || 0), 0);
   const currentTotalCapital =
     ledger.transactions.length > 0
-      ? ledger.transactions[ledger.transactions.length - 1].runningTotalCapital ||
-        ledger.initialCapital
-      : ledger.initialCapital;
+      ? ledger.transactions[ledger.transactions.length - 1].runningTotalCapital ??
+        accountsBalanceSum
+      : accountsBalanceSum || ledger.initialCapital;
 
   const startingCapital = ledger.initialCapital || 0;
   const capitalGrowth = currentTotalCapital - startingCapital;
@@ -118,7 +119,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white font-medium text-xs rounded-xl backdrop-blur-xs border border-white/15 transition-all flex items-center gap-2 cursor-pointer"
             >
               <PiggyBank className="w-4 h-4 text-emerald-300" />
-              <span>Savings Ledger</span>
+              <span>Funds</span>
             </button>
           </div>
         </div>
@@ -257,7 +258,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     : 'text-slate-500'
                 }`}
               >
-                Saving
+                Funds
               </button>
               <button
                 onClick={() => setDonutType('income')}
@@ -289,24 +290,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* Quick Summary / Google Drive Integration Banner */}
-      <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-6 border border-slate-200 dark:border-slate-700/60 flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-indigo-600 dark:text-indigo-400">
+      <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-slate-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start sm:items-center gap-3 min-w-0">
+          <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-indigo-600 dark:text-indigo-400 shrink-0">
             <Cloud className="w-6 h-6" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h4 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Google Drive Cloud Database
+              Google Drive Cloud Database (/CapitalFlow Financial Database/)
             </h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Data is saved as <code className="font-mono text-indigo-600 dark:text-indigo-400">capitalflow_budget_{budget.year}.json</code> (current year only) and <code className="font-mono text-indigo-600 dark:text-indigo-400">capitalflow_savings_ledger.json</code> (multi-year capital).
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed break-words">
+              Data is organized in 3 separate JSON files: <code className="font-mono text-indigo-600 dark:text-indigo-400">capitalflow_budget_{budget.year}.json</code> (annual budget), <code className="font-mono text-amber-600 dark:text-amber-400">capitalflow_budget_template.json</code> (personalized estimate template), and <code className="font-mono text-emerald-600 dark:text-emerald-400">capitalflow_savings_ledger.json</code> (multi-year funds).
             </p>
           </div>
         </div>
 
         <button
           onClick={onNavigateToDrive}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors shrink-0 flex items-center gap-1.5"
+          className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer"
         >
           <span>Manage Google Drive Files</span>
         </button>

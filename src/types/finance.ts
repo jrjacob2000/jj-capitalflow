@@ -1,3 +1,5 @@
+export const APP_VERSION = '1.4.0';
+
 export type EntryType = 'income' | 'expense' | 'saving';
 
 export type EntryFrequency = 'monthly' | 'bi-weekly';
@@ -102,6 +104,7 @@ export interface YearBudgetData {
     saving: string[];
   };
   itemTemplates?: BudgetItemTemplate[];
+  isPersonalizedTemplate?: boolean;
   notes?: string;
 }
 
@@ -162,12 +165,26 @@ export interface SavingsLedgerData {
   transactions: SavingsTransaction[];
 }
 
+export interface BudgetTemplateData {
+  version: string;
+  lastUpdated: string;
+  isPersonalizedTemplate: boolean;
+  customCategories: {
+    income: string[];
+    expense: string[];
+    saving: string[];
+  };
+  itemTemplates: BudgetItemTemplate[];
+}
+
 export interface DriveFileInfo {
   id: string;
   name: string;
   mimeType: string;
   modifiedTime: string;
   size?: string;
+  parents?: string[];
+  webViewLink?: string;
 }
 
 export interface DriveSyncStatus {
@@ -181,5 +198,10 @@ export interface DriveSyncStatus {
   error: string | null;
   budgetFileId: string | null;
   savingsFileId: string | null;
+  templateFileId?: string | null;
+  folderId?: string | null;
+  folderName?: string;
   isSessionExpired?: boolean;
 }
+
+

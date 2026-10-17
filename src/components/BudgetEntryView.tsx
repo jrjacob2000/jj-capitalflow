@@ -42,6 +42,7 @@ import {
 
 import { BudgetSpreadsheetView } from './BudgetSpreadsheetView';
 import { CategoryAndTemplateManagerModal } from './CategoryAndTemplateManagerModal';
+import { CarryOverModal } from './CarryOverModal';
 
 interface BudgetEntryViewProps {
   budget: YearBudgetData;
@@ -163,13 +164,16 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [isSplitterOpen, setIsSplitterOpen] = useState<boolean>(false);
   const [isManagerModalOpen, setIsManagerModalOpen] = useState<boolean>(false);
+  const [isCarryOverModalOpen, setIsCarryOverModalOpen] = useState<boolean>(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
 
   // Active Categories & Templates
   const expenseCategories = budget.customCategories?.expense || [...EXPENSE_CATEGORIES];
   const incomeCategories = budget.customCategories?.income || [...INCOME_CATEGORIES];
   const savingCategories = budget.customCategories?.saving || [...SAVING_CATEGORIES];
-  const itemTemplates = budget.itemTemplates || [...DEFAULT_ITEM_TEMPLATES];
+  const itemTemplates = Array.isArray(budget.itemTemplates)
+    ? budget.itemTemplates
+    : [...DEFAULT_ITEM_TEMPLATES];
 
   // Modal period mode and selection
   const [modalFrequency, setModalFrequency] = useState<EntryFrequency>(frequency);
@@ -182,14 +186,17 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
   const [formDate, setFormDate] = useState<string>(
     new Date().toISOString().split('T')[0].replace(/^\d{4}/, String(budget.year))
   );
-  const [formCategory, setFormCategory] = useState<string>(expenseCategories[0] || 'Budget');
+  const [formCategory, setFormCategory] = useState<string>(expenseCategories[0] || 'Housing & Rent');
   const [formItem, setFormItem] = useState<string>('');
   const [formAmount, setFormAmount] = useState<string>('');
   const [formDescription, setFormDescription] = useState<string>('');
   const [formAccountId, setFormAccountId] = useState<string>(accounts[0]?.id || '');
 
   // Paycheck splitter state
-  const [splitterPaycheck, setSplitterPaycheck] = useState<string>('3600');
+  const [splitterPaycheck, setSplitterPaycheck] = useState<string>(() => {
+    const primaryIncome = itemTemplates.find((t) => t.type === 'income');
+    return String(primaryIncome?.defaultEstimatedCost || 3500);
+  });
   const [splitterTemplateAmounts, setSplitterTemplateAmounts] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
     itemTemplates.forEach((t) => {
@@ -197,6 +204,17 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
     });
     return init;
   });
+
+  // Sync splitter template amounts whenever user personalizes itemTemplates
+  useEffect(() => {
+    setSplitterTemplateAmounts((prev) => {
+      const next: Record<string, string> = {};
+      itemTemplates.forEach((t) => {
+        next[t.id] = prev[t.id] !== undefined ? prev[t.id] : String(t.defaultEstimatedCost || 0);
+      });
+      return next;
+    });
+  }, [itemTemplates]);
   const [splitterAccountId, setSplitterAccountId] = useState<string>(accounts[0]?.id || '');
   const [splitterPeriod, setSplitterPeriod] = useState<string>(
     frequency === 'monthly' ? currentMonthName : currentBiWeeklyPeriod
@@ -519,6 +537,36 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
   const formatNumber = (num: number) =>
     new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(num);
 
+  // Compute previous period surplus for Carry-Over in Standard View
+  const { surplus, hasBeenCarriedOver, prevPeriod } = useMemo(() => {
+    if (selectedPeriodFilter === 'all') {
+      return { surplus: 0, hasBeenCarriedOver: true, prevPeriod: '' };
+    }
+    const currentIndex = periodOptions.indexOf(selectedPeriodFilter);
+    if (currentIndex <= 0) {
+      return { surplus: 0, hasBeenCarriedOver: true, prevPeriod: '' };
+    }
+    const previousPeriod = periodOptions[currentIndex - 1];
+    const prevEntries = budget.entries.filter((e) => e.period === previousPeriod);
+    const incAct = prevEntries
+      .filter((e) => e.type === 'income')
+      .reduce((sum, e) => sum + (e.actualCost ?? e.amount ?? 0), 0);
+    const expAct = prevEntries
+      .filter((e) => e.type === 'expense' || e.type === 'saving')
+      .reduce((sum, e) => sum + (e.actualCost ?? e.amount ?? 0), 0);
+    const computedSurplus = incAct - expAct;
+    const alreadyCarriedOver = budget.entries.some(
+      (e) =>
+        e.period === selectedPeriodFilter &&
+        (e.description.includes('Carry-over') || (e.item && e.item.includes('Carry-over')))
+    );
+    return {
+      surplus: computedSurplus,
+      hasBeenCarriedOver: alreadyCarriedOver,
+      prevPeriod: previousPeriod,
+    };
+  }, [budget.entries, periodOptions, selectedPeriodFilter]);
+
   if (viewLayout === 'spreadsheet') {
     return (
       <div key="spreadsheet-layout-root" className="space-y-4">
@@ -533,7 +581,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                 className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-bold bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs cursor-default"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                <span>Spreadsheet Sheet (Multi-Channel &amp; ATM)</span>
+                <span>Spreadsheet Sheet (Multi-Channel)</span>
               </button>
               <button
                 type="button"
@@ -583,7 +631,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium text-slate-600 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-white transition-colors cursor-pointer hover:bg-white/60 dark:hover:bg-slate-700/60"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Spreadsheet Sheet (Multi-Channel &amp; ATM)</span>
+              <span>Spreadsheet Sheet (Multi-Channel)</span>
             </button>
             <button
               type="button"
@@ -759,7 +807,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
               <option value="all">All Types</option>
               <option value="income">Income Only</option>
               <option value="expense">Expenses Only</option>
-              <option value="saving">Savings Only</option>
+              <option value="saving">Funds Only</option>
             </select>
 
             <div className="relative">
@@ -804,13 +852,24 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
             </h3>
           </div>
 
-          <button
-            onClick={() => handleOpenAddModal(selectedPeriodFilter !== 'all' ? selectedPeriodFilter : undefined)}
-            className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 shrink-0 self-start lg:self-center cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Entry for {selectedPeriodFilter === 'all' ? 'Current Period' : selectedPeriodFilter}</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2 shrink-0 self-start lg:self-center">
+            {selectedPeriodFilter !== 'all' && surplus > 0 && !hasBeenCarriedOver && (
+              <button
+                onClick={() => setIsCarryOverModalOpen(true)}
+                className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl border border-amber-400/40 shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+                <span>Bring Forward Previous Surplus: {currencySymbol}{formatNumber(surplus)}</span>
+              </button>
+            )}
+            <button
+              onClick={() => handleOpenAddModal(selectedPeriodFilter !== 'all' ? selectedPeriodFilter : undefined)}
+              className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Entry for {selectedPeriodFilter === 'all' ? 'Current Period' : selectedPeriodFilter}</span>
+            </button>
+          </div>
         </div>
 
         {/* Breakdown Row */}
@@ -830,7 +889,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
           </div>
 
           <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-            <span className="text-slate-400 block text-[11px]">Savings (To Ledger)</span>
+            <span className="text-slate-400 block text-[11px]">Funds</span>
             <span className="text-base font-bold font-mono text-indigo-300 mt-1 block">
               -{currencySymbol}{formatNumber(activeViewStats.savings)}
             </span>
@@ -875,11 +934,22 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
 
       {/* Entries Table */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
-        <div className="p-4 bg-slate-50/70 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
-          <span className="font-medium">
-            Showing {filteredEntries.length} {filteredEntries.length === 1 ? 'record' : 'records'}{' '}
-            {selectedPeriodFilter !== 'all' ? `for ${selectedPeriodFilter}` : 'across all periods'}
-          </span>
+        <div className="p-4 bg-slate-50/70 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="font-medium">
+              Showing {filteredEntries.length} {filteredEntries.length === 1 ? 'record' : 'records'}{' '}
+              {selectedPeriodFilter !== 'all' ? `for ${selectedPeriodFilter}` : 'across all periods'}
+            </span>
+            {selectedPeriodFilter !== 'all' && surplus > 0 && !hasBeenCarriedOver && (
+              <button
+                onClick={() => setIsCarryOverModalOpen(true)}
+                className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold rounded-lg border border-amber-600 flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer shrink-0"
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+                <span>Bring Forward Previous Surplus: {currencySymbol}{formatNumber(surplus)}</span>
+              </button>
+            )}
+          </div>
           <span className="font-mono">Database: capitalflow_budget_{budget.year}.json</span>
         </div>
 
@@ -939,7 +1009,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                           {isIncome && <TrendingUp className="w-3 h-3" />}
                           {isExpense && <Receipt className="w-3 h-3" />}
                           {isSaving && <PiggyBank className="w-3 h-3" />}
-                          <span className="capitalize">{entry.type}</span>
+                          <span className="capitalize">{isSaving ? 'Funds' : entry.type}</span>
                         </span>
                       </td>
 
@@ -1008,7 +1078,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
             <div className="p-5 sm:p-6 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <div>
                 <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
-                  {editingEntryId ? 'Update Entry' : formType === 'income' ? 'New Income' : formType === 'expense' ? 'New Expense' : 'New Saving'}
+                  {editingEntryId ? 'Update Entry' : formType === 'income' ? 'New Income' : formType === 'expense' ? 'New Expense' : 'New Funds'}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Recording for {modalPeriod} ({budget.year})
@@ -1102,7 +1172,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                           : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50'
                       }`}
                     >
-                      Saving
+                      Funds
                     </button>
                   </div>
                 </div>
@@ -1132,6 +1202,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                         if (tpl) {
                           setFormType(tpl.type);
                           setFormCategory(tpl.category);
+                          setFormItem(tpl.item);
                           setFormAmount(String(tpl.defaultEstimatedCost || ''));
                           setFormDescription(tpl.item);
                         }
@@ -1208,7 +1279,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Item Name</label>
                   <input
                     type="text"
-                    placeholder="Item Name (optional)"
+                    placeholder="e.g., Electricity Bill, Groceries & Market, Emergency Fund"
                     value={formItem}
                     onChange={(e) => setFormItem(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
@@ -1220,7 +1291,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                   <div className="p-3.5 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-200 dark:border-indigo-800/80 space-y-2">
                     <div className="flex items-center gap-1.5 text-indigo-700 dark:text-indigo-300 font-semibold text-[11px]">
                       <PiggyBank className="w-3.5 h-3.5" />
-                      <span>Accumulate into Savings Ledger Account</span>
+                      <span>Accumulate into Fund Account</span>
                     </div>
                     <select
                       value={formAccountId}
@@ -1447,6 +1518,33 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
         budget={budget}
         onUpdateCategories={onUpdateCategories}
         onUpdateTemplates={onUpdateTemplates}
+        currencySymbol={currencySymbol}
+      />
+
+      {/* Carry Over Surplus Confirmation Modal */}
+      <CarryOverModal
+        isOpen={isCarryOverModalOpen}
+        onClose={() => setIsCarryOverModalOpen(false)}
+        onConfirm={() => {
+          if (selectedPeriodFilter === 'all' || surplus <= 0 || !prevPeriod) return;
+          const currentIndex = periodOptions.indexOf(selectedPeriodFilter);
+          onAddEntry({
+            year: budget.year,
+            period: selectedPeriodFilter,
+            periodIndex: Math.max(0, currentIndex),
+            date: getRepresentativeDateForPeriod(selectedPeriodFilter, frequency, budget.year),
+            type: 'income',
+            category: 'Other',
+            item: `Carry-over from ${prevPeriod}`,
+            amount: surplus,
+            actualCost: surplus,
+            status: 'Paid',
+            description: `Carry-over from ${prevPeriod}`,
+          });
+        }}
+        surplus={surplus}
+        fromPeriod={prevPeriod}
+        toPeriod={selectedPeriodFilter}
         currencySymbol={currencySymbol}
       />
 

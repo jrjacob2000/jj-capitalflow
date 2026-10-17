@@ -13,7 +13,7 @@ import {
   Sparkles,
   KeyRound,
 } from 'lucide-react';
-import { EntryFrequency, DriveSyncStatus } from '../types/finance';
+import { EntryFrequency, DriveSyncStatus, APP_VERSION } from '../types/finance';
 
 interface HeaderProps {
   currentYear: number;
@@ -66,12 +66,15 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="font-bold text-base sm:text-lg text-slate-900 dark:text-white tracking-tight truncate">
                   CapitalFlow
                 </span>
-                <span className="text-[9px] sm:text-[10px] font-semibold tracking-wider uppercase px-1 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hidden sm:inline-block shrink-0">
+                <span className="text-[9px] sm:text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700/80 shrink-0">
+                  v{APP_VERSION}
+                </span>
+                <span className="text-[9px] sm:text-[10px] font-semibold tracking-wider uppercase px-1 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hidden lg:inline-block shrink-0">
                   Drive DB
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
-                Budget, Savings &amp; Capital Growth Ledger
+                Budget, Funds &amp; Capital Growth Ledger
               </p>
             </div>
           </div>
@@ -106,7 +109,7 @@ export const Header: React.FC<HeaderProps> = ({
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <span>Savings Ledger</span>
+              <span>Funds</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             </button>
             <button
@@ -393,7 +396,7 @@ export const Header: React.FC<HeaderProps> = ({
                 : 'text-slate-600 dark:text-slate-400'
             }`}
           >
-            Savings
+            Funds
           </button>
           <button
             onClick={() => onSelectTab('drive')}

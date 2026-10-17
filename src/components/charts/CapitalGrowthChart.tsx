@@ -29,7 +29,11 @@ export const CapitalGrowthChart: React.FC<CapitalGrowthChartProps> = ({
     note: tx.note,
   }));
 
-  const totalCapital = points.length > 0 ? points[points.length - 1].capital : ledger.initialCapital || 0;
+  const accountsBalanceSum = (ledger.accounts || []).reduce((sum, a) => sum + (a.balance || 0), 0);
+  const totalCapital =
+    points.length > 0
+      ? points[points.length - 1].capital
+      : accountsBalanceSum || ledger.initialCapital || 0;
   const startingCapital = ledger.initialCapital || (points.length > 0 ? points[0].capital : 0);
   const netGrowth = totalCapital - startingCapital;
   const growthPercentage = startingCapital > 0 ? (netGrowth / startingCapital) * 100 : 0;
@@ -182,7 +186,7 @@ export const CapitalGrowthChart: React.FC<CapitalGrowthChartProps> = ({
                   y={y + 3}
                   className="text-[9px] fill-emerald-600 dark:fill-emerald-400 font-semibold"
                 >
-                  ${milestone / 1000}k
+                  {currencySymbol}{milestone / 1000}k
                 </text>
               </g>
             );

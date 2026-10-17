@@ -90,17 +90,17 @@ export const BIWEEKLY_PERIODS = MONTH_NAMES.flatMap((m, monthIdx) => [
 ]);
 
 export const EXPENSE_CATEGORIES = [
-  'Thites-Charity',
-  'Budget-Bills',
-  'Budget-Odiongan',
-  'Budget',
-  'House',
-  'Liabilities',
-  'Intertainment/Shopping/dine',
-  'House Maintenance',
-  'Car',
-  'Savings',
-  'other',
+  'Housing & Rent',
+  'Utilities & Bills',
+  'Food & Groceries',
+  'Transportation',
+  'Household & Family',
+  'Healthcare & Wellness',
+  'Debt & Insurance',
+  'Dining & Entertainment',
+  'Personal & Shopping',
+  'Giving & Charity',
+  'Miscellaneous',
 ];
 
 export const PAYMENT_METHODS = [
@@ -113,18 +113,18 @@ export const PAYMENT_METHODS = [
 ] as const;
 
 export const INCOME_CATEGORIES = [
-  'Salary',
-  'Extra Income (apartment rent)',
-  '13th Month',
-  'Extra Income/car rental',
+  'Salary & Wages',
+  'Side Hustle / Freelance',
+  'Business / Rental Income',
+  '13th Month & Bonuses',
   'Other Income',
 ];
 
 export const SAVING_CATEGORIES = [
-  'Savings',
   'Emergency Fund',
-  'Pag-IBIG MP2',
+  'General Savings',
   'Digital Bank (High-Yield)',
+  'Pag-IBIG MP2',
   'Traditional Bank Savings',
   'Time Deposit',
   'Investment / Stocks',
@@ -133,42 +133,267 @@ export const SAVING_CATEGORIES = [
   'Retirement Fund (PERA)',
 ];
 
+/**
+ * Default Starter Estimate Budget for new users who do not have an existing personalized template yet.
+ * Uses clean, universal common categories and items.
+ */
 export const DEFAULT_ITEM_TEMPLATES: BudgetItemTemplate[] = [
-  // Income
-  { id: 'tpl-salary', type: 'income' as const, category: 'Salary', item: 'Salary', defaultEstimatedCost: 155000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-rent-inc', type: 'income' as const, category: 'Extra Income (apartment rent)', item: 'Extra Income (apartment rent)', defaultEstimatedCost: 0, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-13th', type: 'income' as const, category: '13th Month', item: '13th Month', defaultEstimatedCost: 0, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-car-inc', type: 'income' as const, category: 'Extra Income/car rental', item: 'Extra Income/car rental', defaultEstimatedCost: 0, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
-  // Expenses
-  { id: 'tpl-thites', type: 'expense' as const, category: 'Thites-Charity', item: 'Thites', defaultEstimatedCost: 16000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-meralco', type: 'expense' as const, category: 'Budget-Bills', item: 'Meralco', defaultEstimatedCost: 3500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-water', type: 'expense' as const, category: 'Budget-Bills', item: 'Water', defaultEstimatedCost: 700, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-internet', type: 'expense' as const, category: 'Budget-Bills', item: 'Internet', defaultEstimatedCost: 750, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'GCash Transfer' },
-  { id: 'tpl-mobile', type: 'expense' as const, category: 'Budget-Bills', item: 'Mobile load', defaultEstimatedCost: 500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'GCash Transfer' },
-  { id: 'tpl-odiongan', type: 'expense' as const, category: 'Budget-Odiongan', item: 'Groceries/budget - odiongan', defaultEstimatedCost: 18000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
-  { id: 'tpl-kath', type: 'expense' as const, category: 'Budget-Odiongan', item: 'kath allowance', defaultEstimatedCost: 4500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
-  { id: 'tpl-zack', type: 'expense' as const, category: 'Budget-Odiongan', item: 'Zack allowance', defaultEstimatedCost: 3500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
-  { id: 'tpl-medicine', type: 'expense' as const, category: 'Budget-Odiongan', item: 'Medicine', defaultEstimatedCost: 3000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
-  { id: 'tpl-motor', type: 'expense' as const, category: 'Budget-Odiongan', item: 'Motorcycle Maintenance/ Gas', defaultEstimatedCost: 1500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
-  { id: 'tpl-groc-me', type: 'expense' as const, category: 'Budget', item: 'Groceries - me', defaultEstimatedCost: 2000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
-  { id: 'tpl-daily', type: 'expense' as const, category: 'Budget', item: 'Daily Budget', defaultEstimatedCost: 7500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
-  { id: 'tpl-rice', type: 'expense' as const, category: 'Budget', item: 'Rice', defaultEstimatedCost: 1500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash' },
-  { id: 'tpl-gasul', type: 'expense' as const, category: 'Budget', item: 'Gasul', defaultEstimatedCost: 500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash' },
-  { id: 'tpl-parents', type: 'expense' as const, category: 'Thites-Charity', item: 'Mama/Papa', defaultEstimatedCost: 6000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
-  { id: 'tpl-mortgage', type: 'expense' as const, category: 'House', item: 'Pag-ibig Mortgage', defaultEstimatedCost: 35000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Checking Account' },
-  { id: 'tpl-prulife', type: 'expense' as const, category: 'Liabilities', item: 'Credit Card - Prulife - 5k Monthly', defaultEstimatedCost: 5000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Credit Card' },
-  { id: 'tpl-gas-cc', type: 'expense' as const, category: 'Budget', item: 'Credit Card -Car Gas', defaultEstimatedCost: 2000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Credit Card' },
-  { id: 'tpl-stream', type: 'expense' as const, category: 'Intertainment/Shopping/dine', item: 'netflix/prime/Hbo', defaultEstimatedCost: 600, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Credit Card' },
-  { id: 'tpl-dine', type: 'expense' as const, category: 'Intertainment/Shopping/dine', item: 'dine and shoppe', defaultEstimatedCost: 20000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Credit Card' },
-  { id: 'tpl-house-maint', type: 'expense' as const, category: 'House Maintenance', item: 'House Maintenance', defaultEstimatedCost: 1000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
-  { id: 'tpl-hoa', type: 'expense' as const, category: 'Liabilities', item: 'HOA monthly dues', defaultEstimatedCost: 1000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash' },
-  { id: 'tpl-car-maint', type: 'expense' as const, category: 'Car', item: 'Car Maintenance', defaultEstimatedCost: 5000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-savings', type: 'saving' as const, category: 'Savings', item: 'Savings', defaultEstimatedCost: 10000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-buffer', type: 'expense' as const, category: 'Budget', item: 'Buffer', defaultEstimatedCost: 3000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash' },
-  { id: 'tpl-dog', type: 'expense' as const, category: 'Budget', item: 'Dog food and others', defaultEstimatedCost: 1000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
+  // Common Income Sources
+  {
+    id: 'tpl-default-salary',
+    type: 'income',
+    category: 'Salary & Wages',
+    item: 'Primary Salary / Paycheck',
+    defaultEstimatedCost: 50000,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Bank Transfer',
+  },
+  {
+    id: 'tpl-default-side-income',
+    type: 'income',
+    category: 'Side Hustle / Freelance',
+    item: 'Extra / Side Income',
+    defaultEstimatedCost: 0,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Bank Transfer',
+  },
+
+  // Common Living Expenses
+  {
+    id: 'tpl-default-housing',
+    type: 'expense',
+    category: 'Housing & Rent',
+    item: 'Rent / Mortgage Payment',
+    defaultEstimatedCost: 15000,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Bank Transfer',
+  },
+  {
+    id: 'tpl-default-electricity',
+    type: 'expense',
+    category: 'Utilities & Bills',
+    item: 'Electricity Bill',
+    defaultEstimatedCost: 3500,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Bank Transfer',
+  },
+  {
+    id: 'tpl-default-water',
+    type: 'expense',
+    category: 'Utilities & Bills',
+    item: 'Water Bill',
+    defaultEstimatedCost: 600,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'GCash Transfer',
+  },
+  {
+    id: 'tpl-default-internet',
+    type: 'expense',
+    category: 'Utilities & Bills',
+    item: 'Internet & Wi-Fi',
+    defaultEstimatedCost: 1500,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'GCash Transfer',
+  },
+  {
+    id: 'tpl-default-mobile',
+    type: 'expense',
+    category: 'Utilities & Bills',
+    item: 'Mobile Plan / Load',
+    defaultEstimatedCost: 600,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'GCash Transfer',
+  },
+  {
+    id: 'tpl-default-groceries',
+    type: 'expense',
+    category: 'Food & Groceries',
+    item: 'Groceries & Supermarket',
+    defaultEstimatedCost: 8000,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Cash',
+    toBeWithdrawn: true,
+  },
+  {
+    id: 'tpl-default-daily-meals',
+    type: 'expense',
+    category: 'Food & Groceries',
+    item: 'Daily Allowance & Meals',
+    defaultEstimatedCost: 5000,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Cash',
+    toBeWithdrawn: true,
+  },
+  {
+    id: 'tpl-default-transport',
+    type: 'expense',
+    category: 'Transportation',
+    item: 'Fuel / Commute & Transit',
+    defaultEstimatedCost: 3000,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Cash',
+    toBeWithdrawn: true,
+  },
+  {
+    id: 'tpl-default-household',
+    type: 'expense',
+    category: 'Household & Family',
+    item: 'Family & Household Support',
+    defaultEstimatedCost: 4000,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Bank Transfer',
+  },
+  {
+    id: 'tpl-default-health',
+    type: 'expense',
+    category: 'Healthcare & Wellness',
+    item: 'Medicine & Vitamins',
+    defaultEstimatedCost: 1500,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Cash',
+  },
+  {
+    id: 'tpl-default-insurance-debt',
+    type: 'expense',
+    category: 'Debt & Insurance',
+    item: 'Insurance / Credit Card Bill',
+    defaultEstimatedCost: 3000,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Credit Card',
+  },
+  {
+    id: 'tpl-default-dining-sub',
+    type: 'expense',
+    category: 'Dining & Entertainment',
+    item: 'Dining Out & Subscriptions',
+    defaultEstimatedCost: 2500,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Credit Card',
+  },
+  {
+    id: 'tpl-default-charity',
+    type: 'expense',
+    category: 'Giving & Charity',
+    item: 'Tithes / Charity & Giving',
+    defaultEstimatedCost: 2000,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Bank Transfer',
+  },
+  {
+    id: 'tpl-default-misc',
+    type: 'expense',
+    category: 'Miscellaneous',
+    item: 'Home Maintenance / Buffer',
+    defaultEstimatedCost: 1800,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Cash',
+  },
+
+  // Common Planned Funds / Savings
+  {
+    id: 'tpl-default-emergency-fund',
+    type: 'saving',
+    category: 'Emergency Fund',
+    item: 'Emergency Fund Allocation',
+    defaultEstimatedCost: 4000,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Bank Transfer',
+  },
+  {
+    id: 'tpl-default-general-savings',
+    type: 'saving',
+    category: 'General Savings',
+    item: 'Long-Term Savings / Investment',
+    defaultEstimatedCost: 4000,
+    frequency: 'monthly',
+    biweeklyPeriod: 'both',
+    defaultPaymentMethod: 'Bank Transfer',
+  },
 ];
 
-export function createEmptyYearBudget(year: number): YearBudgetData {
+const LEGACY_HARDCODED_TEMPLATE_IDS = new Set([
+  'tpl-odiongan',
+  'tpl-kath',
+  'tpl-zack',
+  'tpl-thites',
+  'tpl-prulife',
+  'tpl-dine',
+  'tpl-gasul',
+]);
+
+/**
+ * Checks if a template list is the old hardcoded personal demo list
+ */
+export function isLegacyHardcodedTemplate(templates?: BudgetItemTemplate[]): boolean {
+  if (!templates || templates.length === 0) return false;
+  return templates.some((t) => LEGACY_HARDCODED_TEMPLATE_IDS.has(t.id));
+}
+
+/**
+ * Derives category-level planned budgets dynamically from the user's itemTemplates
+ */
+export function deriveCategoryBudgetsFromTemplates(templates: BudgetItemTemplate[]) {
+  const map = new Map<string, { category: string; type: 'income' | 'expense' | 'saving'; plannedAmount: number }>();
+  templates.forEach((tpl) => {
+    const key = `${tpl.type}:${tpl.category}`;
+    const existing = map.get(key);
+    const amount = tpl.defaultEstimatedCost || 0;
+    if (existing) {
+      existing.plannedAmount += amount;
+    } else if (amount > 0) {
+      map.set(key, {
+        category: tpl.category,
+        type: tpl.type,
+        plannedAmount: amount,
+      });
+    }
+  });
+  return Array.from(map.values());
+}
+
+export function createEmptyYearBudget(
+  year: number,
+  userProfile?: {
+    customCategories?: { income: string[]; expense: string[]; saving: string[] };
+    itemTemplates?: BudgetItemTemplate[];
+    isPersonalizedTemplate?: boolean;
+  }
+): YearBudgetData {
+  const activeTemplates =
+    userProfile?.itemTemplates && !isLegacyHardcodedTemplate(userProfile.itemTemplates)
+      ? userProfile.itemTemplates.map((t) => ({ ...t }))
+      : DEFAULT_ITEM_TEMPLATES.map((t) => ({ ...t }));
+
+  const activeCategories =
+    userProfile?.customCategories && !isLegacyHardcodedTemplate(userProfile.itemTemplates)
+      ? {
+          expense: [...userProfile.customCategories.expense],
+          income: [...userProfile.customCategories.income],
+          saving: [...userProfile.customCategories.saving],
+        }
+      : {
+          expense: [...EXPENSE_CATEGORIES],
+          income: [...INCOME_CATEGORIES],
+          saving: [...SAVING_CATEGORIES],
+        };
+
   return {
     year,
     version: '1.0',
@@ -176,21 +401,10 @@ export function createEmptyYearBudget(year: number): YearBudgetData {
     entryMode: 'monthly',
     currency: '₱',
     entries: [],
-    customCategories: {
-      expense: [...EXPENSE_CATEGORIES],
-      income: [...INCOME_CATEGORIES],
-      saving: [...SAVING_CATEGORIES],
-    },
-    itemTemplates: [...DEFAULT_ITEM_TEMPLATES],
-    budgets: [
-      { category: 'House', type: 'expense', plannedAmount: 35000 },
-      { category: 'Budget-Odiongan', type: 'expense', plannedAmount: 30000 },
-      { category: 'Thites-Charity', type: 'expense', plannedAmount: 22000 },
-      { category: 'Budget', type: 'expense', plannedAmount: 18000 },
-      { category: 'Intertainment/Shopping/dine', type: 'expense', plannedAmount: 20000 },
-      { category: 'Salary', type: 'income', plannedAmount: 160000 },
-      { category: 'Savings', type: 'saving', plannedAmount: 10000 },
-    ],
+    customCategories: activeCategories,
+    itemTemplates: activeTemplates,
+    isPersonalizedTemplate: Boolean(userProfile?.isPersonalizedTemplate),
+    budgets: deriveCategoryBudgetsFromTemplates(activeTemplates),
   };
 }
 
@@ -200,9 +414,9 @@ export function generateInitial2026Budget(): YearBudgetData {
 
 export function generateInitialSavingsLedger(_initial2026Budget?: YearBudgetData): SavingsLedgerData {
   return {
-    version: "1.0",
+    version: '1.0',
     lastUpdated: new Date().toISOString(),
-    currency: "₱",
+    currency: '₱',
     initialCapital: 0,
     accounts: DEFAULT_SAVINGS_ACCOUNTS.map((acc) => ({
       ...acc,

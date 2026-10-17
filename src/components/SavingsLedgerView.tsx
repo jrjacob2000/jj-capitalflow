@@ -185,10 +185,11 @@ export const SavingsLedgerView: React.FC<SavingsLedgerViewProps> = ({
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
+  const accountsBalanceSum = ledger.accounts.reduce((sum, a) => sum + (a.balance || 0), 0);
   const totalCapital =
     ledger.transactions.length > 0
-      ? ledger.transactions[ledger.transactions.length - 1].runningTotalCapital || ledger.initialCapital
-      : ledger.initialCapital;
+      ? ledger.transactions[ledger.transactions.length - 1].runningTotalCapital ?? accountsBalanceSum
+      : accountsBalanceSum || ledger.initialCapital;
 
   // Next milestone computation
   const milestones = [10000, 25000, 50000, 75000, 100000, 150000, 250000, 500000, 1000000];
