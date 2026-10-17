@@ -1,4 +1,4 @@
-import { YearBudgetData, SavingsLedgerData, BudgetEntry, SavingsAccount, SavingsTransaction } from '../types/finance';
+import { YearBudgetData, SavingsLedgerData, BudgetEntry, SavingsAccount, SavingsTransaction, BudgetItemTemplate, EntryFrequency } from '../types/finance';
 
 export const DEFAULT_SAVINGS_ACCOUNTS: SavingsAccount[] = [
   {
@@ -52,6 +52,27 @@ export const MONTH_NAMES = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ];
+
+export const isTemplateValidForPeriod = (
+  tpl: BudgetItemTemplate,
+  frequency: EntryFrequency,
+  period: string
+): boolean => {
+  const tFreq = tpl.frequency || 'monthly';
+  const tBi = tpl.biweeklyPeriod || 'both';
+
+  if (frequency === 'monthly') {
+    return tFreq === 'monthly' || tFreq === 'both';
+  } else {
+    if (tFreq !== 'bi-weekly' && tFreq !== 'both') return false;
+    if (tBi === 'both') return true;
+    const isP1 = period.endsWith('-P1') || period.includes('P1');
+    const isP2 = period.endsWith('-P2') || period.includes('P2');
+    if (tBi === 'P1' && isP1) return true;
+    if (tBi === 'P2' && isP2) return true;
+    return false;
+  }
+};
 
 export const BIWEEKLY_PERIODS = MONTH_NAMES.flatMap((m, monthIdx) => [
   {
@@ -112,40 +133,40 @@ export const SAVING_CATEGORIES = [
   'Retirement Fund (PERA)',
 ];
 
-export const DEFAULT_ITEM_TEMPLATES = [
+export const DEFAULT_ITEM_TEMPLATES: BudgetItemTemplate[] = [
   // Income
-  { id: 'tpl-salary', type: 'income', category: 'Salary', item: 'Salary', defaultEstimatedCost: 155000, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-rent-inc', type: 'income', category: 'Extra Income (apartment rent)', item: 'Extra Income (apartment rent)', defaultEstimatedCost: 0, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-13th', type: 'income', category: '13th Month', item: '13th Month', defaultEstimatedCost: 0, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-car-inc', type: 'income', category: 'Extra Income/car rental', item: 'Extra Income/car rental', defaultEstimatedCost: 0, defaultPaymentMethod: 'Bank Transfer' },
+  { id: 'tpl-salary', type: 'income' as const, category: 'Salary', item: 'Salary', defaultEstimatedCost: 155000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
+  { id: 'tpl-rent-inc', type: 'income' as const, category: 'Extra Income (apartment rent)', item: 'Extra Income (apartment rent)', defaultEstimatedCost: 0, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
+  { id: 'tpl-13th', type: 'income' as const, category: '13th Month', item: '13th Month', defaultEstimatedCost: 0, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
+  { id: 'tpl-car-inc', type: 'income' as const, category: 'Extra Income/car rental', item: 'Extra Income/car rental', defaultEstimatedCost: 0, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
   // Expenses
-  { id: 'tpl-thites', type: 'expense', category: 'Thites-Charity', item: 'Thites', defaultEstimatedCost: 16000, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-meralco', type: 'expense', category: 'Budget-Bills', item: 'Meralco', defaultEstimatedCost: 3500, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-water', type: 'expense', category: 'Budget-Bills', item: 'Water', defaultEstimatedCost: 700, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-internet', type: 'expense', category: 'Budget-Bills', item: 'Internet', defaultEstimatedCost: 750, defaultPaymentMethod: 'GCash Transfer' },
-  { id: 'tpl-mobile', type: 'expense', category: 'Budget-Bills', item: 'Mobile load', defaultEstimatedCost: 500, defaultPaymentMethod: 'GCash Transfer' },
-  { id: 'tpl-odiongan', type: 'expense', category: 'Budget-Odiongan', item: 'Groceries/budget - odiongan', defaultEstimatedCost: 18000, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
-  { id: 'tpl-kath', type: 'expense', category: 'Budget-Odiongan', item: 'kath allowance', defaultEstimatedCost: 4500, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
-  { id: 'tpl-zack', type: 'expense', category: 'Budget-Odiongan', item: 'Zack allowance', defaultEstimatedCost: 3500, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
-  { id: 'tpl-medicine', type: 'expense', category: 'Budget-Odiongan', item: 'Medicine', defaultEstimatedCost: 3000, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
-  { id: 'tpl-motor', type: 'expense', category: 'Budget-Odiongan', item: 'Motorcycle Maintenance/ Gas', defaultEstimatedCost: 1500, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
-  { id: 'tpl-groc-me', type: 'expense', category: 'Budget', item: 'Groceries - me', defaultEstimatedCost: 2000, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
-  { id: 'tpl-daily', type: 'expense', category: 'Budget', item: 'Daily Budget', defaultEstimatedCost: 7500, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
-  { id: 'tpl-rice', type: 'expense', category: 'Budget', item: 'Rice', defaultEstimatedCost: 1500, defaultPaymentMethod: 'Cash' },
-  { id: 'tpl-gasul', type: 'expense', category: 'Budget', item: 'Gasul', defaultEstimatedCost: 500, defaultPaymentMethod: 'Cash' },
-  { id: 'tpl-parents', type: 'expense', category: 'Thites-Charity', item: 'Mama/Papa', defaultEstimatedCost: 6000, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
-  { id: 'tpl-mortgage', type: 'expense', category: 'House', item: 'Pag-ibig Mortgage', defaultEstimatedCost: 35000, defaultPaymentMethod: 'Checking Account' },
-  { id: 'tpl-prulife', type: 'expense', category: 'Liabilities', item: 'Credit Card - Prulife - 5k Monthly', defaultEstimatedCost: 5000, defaultPaymentMethod: 'Credit Card' },
-  { id: 'tpl-gas-cc', type: 'expense', category: 'Budget', item: 'Credit Card -Car Gas', defaultEstimatedCost: 2000, defaultPaymentMethod: 'Credit Card' },
-  { id: 'tpl-stream', type: 'expense', category: 'Intertainment/Shopping/dine', item: 'netflix/prime/Hbo', defaultEstimatedCost: 600, defaultPaymentMethod: 'Credit Card' },
-  { id: 'tpl-dine', type: 'expense', category: 'Intertainment/Shopping/dine', item: 'dine and shoppe', defaultEstimatedCost: 20000, defaultPaymentMethod: 'Credit Card' },
-  { id: 'tpl-house-maint', type: 'expense', category: 'House Maintenance', item: 'House Maintenance', defaultEstimatedCost: 1000, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
-  { id: 'tpl-hoa', type: 'expense', category: 'Liabilities', item: 'HOA monthly dues', defaultEstimatedCost: 1000, defaultPaymentMethod: 'Cash' },
-  { id: 'tpl-car-maint', type: 'expense', category: 'Car', item: 'Car Maintenance', defaultEstimatedCost: 5000, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-savings', type: 'saving', category: 'Savings', item: 'Savings', defaultEstimatedCost: 10000, defaultPaymentMethod: 'Bank Transfer' },
-  { id: 'tpl-buffer', type: 'expense', category: 'Budget', item: 'Buffer', defaultEstimatedCost: 3000, defaultPaymentMethod: 'Cash' },
-  { id: 'tpl-dog', type: 'expense', category: 'Budget', item: 'Dog food and others', defaultEstimatedCost: 1000, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
-] as const;
+  { id: 'tpl-thites', type: 'expense' as const, category: 'Thites-Charity', item: 'Thites', defaultEstimatedCost: 16000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
+  { id: 'tpl-meralco', type: 'expense' as const, category: 'Budget-Bills', item: 'Meralco', defaultEstimatedCost: 3500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
+  { id: 'tpl-water', type: 'expense' as const, category: 'Budget-Bills', item: 'Water', defaultEstimatedCost: 700, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
+  { id: 'tpl-internet', type: 'expense' as const, category: 'Budget-Bills', item: 'Internet', defaultEstimatedCost: 750, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'GCash Transfer' },
+  { id: 'tpl-mobile', type: 'expense' as const, category: 'Budget-Bills', item: 'Mobile load', defaultEstimatedCost: 500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'GCash Transfer' },
+  { id: 'tpl-odiongan', type: 'expense' as const, category: 'Budget-Odiongan', item: 'Groceries/budget - odiongan', defaultEstimatedCost: 18000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
+  { id: 'tpl-kath', type: 'expense' as const, category: 'Budget-Odiongan', item: 'kath allowance', defaultEstimatedCost: 4500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
+  { id: 'tpl-zack', type: 'expense' as const, category: 'Budget-Odiongan', item: 'Zack allowance', defaultEstimatedCost: 3500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
+  { id: 'tpl-medicine', type: 'expense' as const, category: 'Budget-Odiongan', item: 'Medicine', defaultEstimatedCost: 3000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
+  { id: 'tpl-motor', type: 'expense' as const, category: 'Budget-Odiongan', item: 'Motorcycle Maintenance/ Gas', defaultEstimatedCost: 1500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Kath Account', toBeWithdrawn: true },
+  { id: 'tpl-groc-me', type: 'expense' as const, category: 'Budget', item: 'Groceries - me', defaultEstimatedCost: 2000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
+  { id: 'tpl-daily', type: 'expense' as const, category: 'Budget', item: 'Daily Budget', defaultEstimatedCost: 7500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
+  { id: 'tpl-rice', type: 'expense' as const, category: 'Budget', item: 'Rice', defaultEstimatedCost: 1500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash' },
+  { id: 'tpl-gasul', type: 'expense' as const, category: 'Budget', item: 'Gasul', defaultEstimatedCost: 500, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash' },
+  { id: 'tpl-parents', type: 'expense' as const, category: 'Thites-Charity', item: 'Mama/Papa', defaultEstimatedCost: 6000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
+  { id: 'tpl-mortgage', type: 'expense' as const, category: 'House', item: 'Pag-ibig Mortgage', defaultEstimatedCost: 35000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Checking Account' },
+  { id: 'tpl-prulife', type: 'expense' as const, category: 'Liabilities', item: 'Credit Card - Prulife - 5k Monthly', defaultEstimatedCost: 5000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Credit Card' },
+  { id: 'tpl-gas-cc', type: 'expense' as const, category: 'Budget', item: 'Credit Card -Car Gas', defaultEstimatedCost: 2000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Credit Card' },
+  { id: 'tpl-stream', type: 'expense' as const, category: 'Intertainment/Shopping/dine', item: 'netflix/prime/Hbo', defaultEstimatedCost: 600, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Credit Card' },
+  { id: 'tpl-dine', type: 'expense' as const, category: 'Intertainment/Shopping/dine', item: 'dine and shoppe', defaultEstimatedCost: 20000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Credit Card' },
+  { id: 'tpl-house-maint', type: 'expense' as const, category: 'House Maintenance', item: 'House Maintenance', defaultEstimatedCost: 1000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
+  { id: 'tpl-hoa', type: 'expense' as const, category: 'Liabilities', item: 'HOA monthly dues', defaultEstimatedCost: 1000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash' },
+  { id: 'tpl-car-maint', type: 'expense' as const, category: 'Car', item: 'Car Maintenance', defaultEstimatedCost: 5000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
+  { id: 'tpl-savings', type: 'saving' as const, category: 'Savings', item: 'Savings', defaultEstimatedCost: 10000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Bank Transfer' },
+  { id: 'tpl-buffer', type: 'expense' as const, category: 'Budget', item: 'Buffer', defaultEstimatedCost: 3000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash' },
+  { id: 'tpl-dog', type: 'expense' as const, category: 'Budget', item: 'Dog food and others', defaultEstimatedCost: 1000, frequency: 'monthly' as const, biweeklyPeriod: 'both' as const, defaultPaymentMethod: 'Cash', toBeWithdrawn: true },
+];
 
 export function createEmptyYearBudget(year: number): YearBudgetData {
   return {

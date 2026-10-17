@@ -32,10 +32,11 @@ export const CashflowChart: React.FC<CashflowChartProps> = ({
     let saving = 0;
 
     entries.forEach((entry) => {
-      if (entry.periodIndex === idx || entry.period === label) {
-        if (entry.type === 'income') income += entry.amount;
-        if (entry.type === 'expense') expense += entry.amount;
-        if (entry.type === 'saving') saving += entry.amount;
+      if (entry.period === label) {
+        const amt = entry.actualCost ?? entry.amount ?? 0;
+        if (entry.type === 'income') income += amt;
+        if (entry.type === 'expense') expense += amt;
+        if (entry.type === 'saving') saving += amt;
       }
     });
 
@@ -142,7 +143,7 @@ export const CashflowChart: React.FC<CashflowChartProps> = ({
                 return (
                   <g key={i}>
                     <line
-                      x1="40"
+                      x1="52"
                       y1={y}
                       x2={frequency === 'bi-weekly' ? 1070 : 630}
                       y2={y}
@@ -151,12 +152,12 @@ export const CashflowChart: React.FC<CashflowChartProps> = ({
                       className="text-slate-100 dark:text-slate-800/80"
                     />
                     <text
-                      x="35"
+                      x="48"
                       y={y + 3}
                       textAnchor="end"
                       className="text-[10px] fill-slate-400 dark:fill-slate-500 font-mono"
                     >
-                      {formatNumber(val)}
+                      {currencySymbol}{formatNumber(val)}
                     </text>
                   </g>
                 );
@@ -165,9 +166,9 @@ export const CashflowChart: React.FC<CashflowChartProps> = ({
               {/* Data Bars */}
               {aggregatedData.map((d, i) => {
                 const count = aggregatedData.length;
-                const chartWidth = (frequency === 'bi-weekly' ? 1070 : 630) - 45;
+                const chartWidth = (frequency === 'bi-weekly' ? 1070 : 630) - 55;
                 const slotWidth = chartWidth / count;
-                const groupX = 45 + i * slotWidth;
+                const groupX = 55 + i * slotWidth;
                 const barWidth = Math.max(3, Math.min(14, slotWidth / 4));
                 const isHovered = hoveredIdx === i;
 

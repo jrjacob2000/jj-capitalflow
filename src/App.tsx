@@ -40,7 +40,7 @@ import {
   isSessionExpiredError,
   validateDriveToken,
 } from './services/driveService';
-import { CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { CheckCircle2, AlertCircle, RefreshCw, Calendar, X } from 'lucide-react';
 
 export default function App() {
   const [currentYear, setCurrentYear] = useState<number>(2026);
@@ -82,6 +82,12 @@ export default function App() {
 
   // Google Drive Session Expired Modal State
   const [isSessionExpiredModalOpen, setIsSessionExpiredModalOpen] = useState<boolean>(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+
+  // Create New Year Modal State
+  const [isNewYearModalOpen, setIsNewYearModalOpen] = useState<boolean>(false);
+  const [newYearInput, setNewYearInput] = useState<string>('');
+  const [copyTemplatesToNewYear, setCopyTemplatesToNewYear] = useState<boolean>(true);
 
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -442,6 +448,7 @@ export default function App() {
         isSyncing: false,
         lastSyncedAt: new Date().toLocaleTimeString(),
       }));
+      setHasUnsavedChanges(false);
       setConflictModalState({ isOpen: false, items: [] });
       showToast('Uploaded latest local budget and ledger to Google Drive!', 'success');
     } catch (err: any) {
@@ -538,28 +545,53 @@ export default function App() {
     }
   };
 
-  // Create new year
+  // Open Create New Year Modal
   const handleAddNewYear = () => {
     const nextDefaultYear = Math.max(...availableYears, new Date().getFullYear()) + 1;
-    const yearInput = window.prompt('Enter new budget year to initialize:', String(nextDefaultYear));
-    if (!yearInput) return;
+    setNewYearInput(String(nextDefaultYear));
+    setCopyTemplatesToNewYear(true);
+    setIsNewYearModalOpen(true);
+  };
 
-    const parsedYear = parseInt(yearInput.trim(), 10);
+  const handleConfirmCreateNewYear = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsedYear = parseInt(newYearInput.trim(), 10);
     if (isNaN(parsedYear) || parsedYear < 2000 || parsedYear > 2100) {
-      alert('Please enter a valid 4-digit year (e.g. 2027).');
+      showToast('Please enter a valid 4-digit year between 2000 and 2100.', 'error');
       return;
     }
 
     FinanceStorageService.registerKnownYear(parsedYear);
+    const loadedNewYear = FinanceStorageService.loadLocalBudget(parsedYear);
+
+    if (copyTemplatesToNewYear && loadedNewYear.entries.length === 0) {
+      const seededBudget: YearBudgetData = {
+        ...loadedNewYear,
+        customCategories: budget.customCategories
+          ? JSON.parse(JSON.stringify(budget.customCategories))
+          : loadedNewYear.customCategories,
+        itemTemplates: budget.itemTemplates
+          ? JSON.parse(JSON.stringify(budget.itemTemplates))
+          : loadedNewYear.itemTemplates,
+        lastUpdated: new Date().toISOString(),
+      };
+      FinanceStorageService.saveLocalBudget(seededBudget);
+    }
+
     setAvailableYears(FinanceStorageService.getKnownYears());
+    setIsNewYearModalOpen(false);
     handleSelectYear(parsedYear);
-    showToast(`Initialized brand new database for year ${parsedYear}`);
+    setHasUnsavedChanges(true);
+    showToast(`Initialized database for year ${parsedYear}`);
   };
 
   // Add Budget Entry
   const handleAddBudgetEntry = (entryData: Omit<BudgetEntry, 'id' | 'createdAt'>) => {
+    const syncedAmount = entryData.actualCost ?? entryData.amount ?? 0;
     const newEntry: BudgetEntry = {
       ...entryData,
+      amount: syncedAmount,
+      actualCost: entryData.actualCost ?? syncedAmount,
       id: `entry-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       createdAt: new Date().toISOString(),
     };
@@ -571,6 +603,7 @@ export default function App() {
 
     setBudget(updatedBudget);
     FinanceStorageService.saveLocalBudget(updatedBudget);
+    setHasUnsavedChanges(true);
 
     // If saving entry: accumulate in the separate Savings Ledger!
     if (newEntry.type === 'saving') {
@@ -584,9 +617,16 @@ export default function App() {
 
   // Update Budget Entry
   const handleUpdateBudgetEntry = (entryId: string, updated: Partial<BudgetEntry>) => {
+    const oldEntry = budget.entries.find((e) => e.id === entryId);
     const updatedEntries = budget.entries.map((e) => {
       if (e.id === entryId) {
-        return { ...e, ...updated };
+        const merged = { ...e, ...updated };
+        if (updated.actualCost !== undefined && updated.amount === undefined) {
+          merged.amount = updated.actualCost;
+        } else if (updated.amount !== undefined && updated.actualCost === undefined) {
+          merged.actualCost = updated.amount;
+        }
+        return merged;
       }
       return e;
     });
@@ -598,9 +638,13 @@ export default function App() {
 
     setBudget(updatedBudget);
     FinanceStorageService.saveLocalBudget(updatedBudget);
+    setHasUnsavedChanges(true);
 
     const target = updatedEntries.find((e) => e.id === entryId);
-    if (target?.type === 'saving') {
+    if (oldEntry?.type === 'saving' && target && target.type !== 'saving') {
+      const rolledBackLedger = FinanceStorageService.accumulateBudgetSavingToLedger(oldEntry, true);
+      setLedger(rolledBackLedger);
+    } else if (target?.type === 'saving') {
       const updatedLedger = FinanceStorageService.accumulateBudgetSavingToLedger(target, false);
       setLedger(updatedLedger);
     }
@@ -621,6 +665,7 @@ export default function App() {
 
     setBudget(updatedBudget);
     FinanceStorageService.saveLocalBudget(updatedBudget);
+    setHasUnsavedChanges(true);
 
     // If it was a saving entry, roll back from Savings Ledger
     if (entry.type === 'saving') {
@@ -672,10 +717,72 @@ export default function App() {
       }
       FinanceStorageService.saveLocalSavingsLedger(currentLedger);
       setLedger({ ...currentLedger });
+      setHasUnsavedChanges(true);
       showToast(
         `Recorded ${txData.source === 'interest_yield' ? 'interest payout' : 'deposit'} of ${currSym}${txData.amount.toLocaleString()} to ${acc?.name || 'account'}`
       );
     }
+  };
+
+  // Helper to reverse or apply a transaction's balance effect on accounts
+  const applyTxBalanceEffect = (
+    accounts: SavingsAccount[],
+    tx: SavingsTransaction,
+    reverse: boolean
+  ) => {
+    const sign = reverse ? -1 : 1;
+    if (tx.source === 'withdrawal') {
+      const acc = accounts.find((a) => a.id === tx.accountId);
+      if (acc) acc.balance = Math.max(0, acc.balance - sign * tx.amount);
+    } else if (tx.source === 'transfer') {
+      const fromAcc = accounts.find((a) => a.id === tx.accountId);
+      const toAcc = accounts.find((a) => a.id === tx.toAccountId);
+      if (fromAcc) fromAcc.balance = Math.max(0, fromAcc.balance - sign * tx.amount);
+      if (toAcc) toAcc.balance = Math.max(0, toAcc.balance + sign * tx.amount);
+    } else {
+      const acc = accounts.find((a) => a.id === tx.accountId);
+      if (acc) acc.balance = Math.max(0, acc.balance + sign * tx.amount);
+    }
+  };
+
+  // Update direct ledger transaction
+  const handleUpdateLedgerTransaction = (txId: string, updated: Partial<SavingsTransaction>) => {
+    const currentLedger = FinanceStorageService.loadLocalSavingsLedger();
+    const txIndex = currentLedger.transactions.findIndex((t) => t.id === txId);
+    if (txIndex === -1) return;
+
+    const oldTx = currentLedger.transactions[txIndex];
+    // Reverse old balance effect
+    applyTxBalanceEffect(currentLedger.accounts, oldTx, true);
+
+    const newTx: SavingsTransaction = {
+      ...oldTx,
+      ...updated,
+    };
+    currentLedger.transactions[txIndex] = newTx;
+
+    // Apply new balance effect
+    applyTxBalanceEffect(currentLedger.accounts, newTx, false);
+
+    FinanceStorageService.saveLocalSavingsLedger(currentLedger);
+    setLedger({ ...currentLedger });
+    setHasUnsavedChanges(true);
+    showToast('Updated savings ledger transaction');
+  };
+
+  // Delete direct ledger transaction
+  const handleDeleteLedgerTransaction = (txId: string) => {
+    const currentLedger = FinanceStorageService.loadLocalSavingsLedger();
+    const oldTx = currentLedger.transactions.find((t) => t.id === txId);
+    if (!oldTx) return;
+
+    applyTxBalanceEffect(currentLedger.accounts, oldTx, true);
+    currentLedger.transactions = currentLedger.transactions.filter((t) => t.id !== txId);
+
+    FinanceStorageService.saveLocalSavingsLedger(currentLedger);
+    setLedger({ ...currentLedger });
+    setHasUnsavedChanges(true);
+    showToast('Deleted transaction from savings ledger');
   };
 
   // Add new account to savings ledger
@@ -789,20 +896,47 @@ export default function App() {
     showToast(`Deleted account "${deletingAcc.name}"${targetAcc ? ` (transferred to ${targetAcc.name})` : ''}`);
   };
 
-  // Update Custom Categories
-  const handleUpdateCategories = (customCats: {
-    expense: string[];
-    income: string[];
-    saving: string[];
-  }) => {
+  // Update Custom Categories (and propagate category renames if applicable)
+  const handleUpdateCategories = (
+    customCats: {
+      expense: string[];
+      income: string[];
+      saving: string[];
+    },
+    renamed?: { type: EntryType; oldName: string; newName: string }
+  ) => {
+    const updatedEntries = renamed
+      ? budget.entries.map((e) =>
+          e.type === renamed.type && e.category === renamed.oldName
+            ? { ...e, category: renamed.newName }
+            : e
+        )
+      : budget.entries;
+
+    const updatedTemplates =
+      renamed && budget.itemTemplates
+        ? budget.itemTemplates.map((t) =>
+            t.type === renamed.type && t.category === renamed.oldName
+              ? { ...t, category: renamed.newName }
+              : t
+          )
+        : budget.itemTemplates;
+
     const updatedBudget: YearBudgetData = {
       ...budget,
+      entries: updatedEntries,
+      itemTemplates: updatedTemplates,
       customCategories: customCats,
       lastUpdated: new Date().toISOString(),
     };
     setBudget(updatedBudget);
     FinanceStorageService.saveLocalBudget(updatedBudget);
-    showToast('Categories updated successfully');
+    setHasUnsavedChanges(true);
+    showToast(
+      renamed
+        ? `Renamed category "${renamed.oldName}" to "${renamed.newName}"`
+        : 'Categories updated successfully'
+    );
   };
 
   // Update Item Templates / Estimated Budgets
@@ -814,6 +948,7 @@ export default function App() {
     };
     setBudget(updatedBudget);
     FinanceStorageService.saveLocalBudget(updatedBudget);
+    setHasUnsavedChanges(true);
     showToast('Estimated budget templates updated');
   };
 
@@ -979,6 +1114,7 @@ export default function App() {
             isSyncing: false,
             lastSyncedAt: new Date().toLocaleTimeString(),
           }));
+          setHasUnsavedChanges(false);
           showToast(`Synced ${budgetFileName} and ${SAVINGS_LEDGER_FILE_NAME} to Google Drive!`);
         } catch (err: any) {
           if (isSessionExpiredError(err)) {
@@ -1044,6 +1180,96 @@ export default function App() {
         isLoading={driveStatus.isSyncing}
       />
 
+      {/* Drive Session Expired Modal */}
+      <DriveSessionExpiredModal
+        isOpen={isSessionExpiredModalOpen}
+        userEmail={driveStatus.userEmail}
+        onSignInAgain={handleSignInWithGoogle}
+        onContinueOffline={() => setIsSessionExpiredModalOpen(false)}
+        isSigningIn={driveStatus.isSyncing}
+      />
+
+      {/* Create New Year Modal */}
+      {isNewYearModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl">
+            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Initialize New Budget Year
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Create a dedicated annual budget database
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNewYearModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmCreateNewYear} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Budget Year (4-digit)
+                </label>
+                <input
+                  type="number"
+                  min={2000}
+                  max={2100}
+                  required
+                  value={newYearInput}
+                  onChange={(e) => setNewYearInput(e.target.value)}
+                  placeholder="e.g. 2027"
+                  className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                />
+              </div>
+
+              <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={copyTemplatesToNewYear}
+                  onChange={(e) => setCopyTemplatesToNewYear(e.target.checked)}
+                  className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <div className="text-xs">
+                  <span className="font-semibold text-slate-800 dark:text-slate-200 block">
+                    Carry over Categories &amp; Item Templates from {currentYear}
+                  </span>
+                  <span className="text-slate-500 dark:text-slate-400 text-[11px]">
+                    Keeps your custom categories and recurring item estimates ready for the new year.
+                  </span>
+                </div>
+              </label>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsNewYearModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-colors"
+                >
+                  Create {newYearInput || ''} Database
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Main Header */}
       <Header
         currentYear={currentYear}
@@ -1059,6 +1285,7 @@ export default function App() {
         onSignOut={handleSignOut}
         onOpenDriveModal={() => setActiveTab('drive')}
         onTriggerSync={triggerSyncAll}
+        hasUnsavedChanges={hasUnsavedChanges}
       />
 
       {/* Body Views */}
@@ -1095,6 +1322,8 @@ export default function App() {
           <SavingsLedgerView
             ledger={ledger}
             onAddTransaction={handleAddLedgerTransaction}
+            onUpdateTransaction={handleUpdateLedgerTransaction}
+            onDeleteTransaction={handleDeleteLedgerTransaction}
             onAddAccount={handleAddSavingsAccount}
             onUpdateAccount={handleUpdateSavingsAccount}
             onDeleteAccount={handleDeleteSavingsAccount}

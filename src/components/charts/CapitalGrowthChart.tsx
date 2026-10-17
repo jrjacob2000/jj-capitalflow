@@ -138,7 +138,7 @@ export const CapitalGrowthChart: React.FC<CapitalGrowthChartProps> = ({
                   textAnchor="end"
                   className="text-[10px] fill-slate-400 dark:fill-slate-500 font-mono"
                 >
-                  {formatNumber(val)}
+                  {currencySymbol}{formatNumber(val)}
                 </text>
               </g>
             );

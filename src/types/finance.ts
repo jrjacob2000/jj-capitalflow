@@ -25,7 +25,6 @@ export interface BudgetEntry {
   actualCost?: number;
   paymentMethod?: PaymentMethod;
   paymentBreakdown?: {
-    stayInAtm?: number;
     cash?: number;
     creditCard?: number;
     gcashTransfer?: number;
@@ -61,7 +60,6 @@ export interface PeriodSheetSummary {
   remainingSalaryEstimated: number;
   remainingSalaryActual: number;
   paymentMethodTotals: {
-    stayInAtm: number;
     cash: number;
     creditCard: number;
     gcashTransfer: number;
@@ -84,6 +82,8 @@ export interface BudgetItemTemplate {
   category: string;
   item: string;
   defaultEstimatedCost: number;
+  frequency?: 'monthly' | 'bi-weekly' | 'both';
+  biweeklyPeriod?: 'P1' | 'P2' | 'both';
   defaultPaymentMethod?: PaymentMethod;
   toBeWithdrawn?: boolean;
 }

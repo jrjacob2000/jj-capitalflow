@@ -41,18 +41,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 }) => {
   const [donutType, setDonutType] = useState<EntryType>('expense');
 
+  const isBiWeeklyPeriod = (p: string) => p.includes('-P1') || p.includes('-P2');
+  const modeEntries = budget.entries.filter((e) =>
+    frequency === 'bi-weekly' ? isBiWeeklyPeriod(e.period) : !isBiWeeklyPeriod(e.period)
+  );
+  const activeEntries = modeEntries.length > 0 ? modeEntries : budget.entries;
+
   // Compute KPI metrics
-  const totalIncome = budget.entries
+  const totalIncome = activeEntries
     .filter((e) => e.type === 'income')
-    .reduce((sum, e) => sum + e.amount, 0);
+    .reduce((sum, e) => sum + (e.actualCost ?? e.amount ?? 0), 0);
 
-  const totalExpenses = budget.entries
+  const totalExpenses = activeEntries
     .filter((e) => e.type === 'expense')
-    .reduce((sum, e) => sum + e.amount, 0);
+    .reduce((sum, e) => sum + (e.actualCost ?? e.amount ?? 0), 0);
 
-  const totalSavings = budget.entries
+  const totalSavings = activeEntries
     .filter((e) => e.type === 'saving')
-    .reduce((sum, e) => sum + e.amount, 0);
+    .reduce((sum, e) => sum + (e.actualCost ?? e.amount ?? 0), 0);
+
+  const activeIncomePeriods = Math.max(
+    1,
+    new Set(activeEntries.filter((e) => e.type === 'income' && (e.actualCost ?? e.amount ?? 0) > 0).map((e) => e.period)).size
+  );
 
   const savingsRate = totalIncome > 0 ? (totalSavings / totalIncome) * 100 : 0;
   const netCashflow = totalIncome - totalExpenses - totalSavings;
@@ -157,7 +168,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
           </div>
           <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
-            <span>Avg {currencySymbol}{formatNumber(totalIncome / (budget.entries.length > 0 ? 10 : 1))}/mo</span>
+            <span>
+              Avg {currencySymbol}{formatNumber(totalIncome / activeIncomePeriods)}/
+              {frequency === 'monthly' ? 'mo' : 'period'} ({activeIncomePeriods} active)
+            </span>
           </div>
         </div>
 
@@ -260,7 +274,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <div className="flex-1">
             <CategoryDonutChart
-              entries={budget.entries}
+              entries={activeEntries}
               type={donutType}
               currencySymbol={currencySymbol}
             />

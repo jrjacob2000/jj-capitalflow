@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Plus,
   Filter,
   Search,
   Trash2,
+  Edit2,
   Calendar,
   PiggyBank,
   TrendingUp,
@@ -36,6 +37,7 @@ import {
   INCOME_CATEGORIES,
   SAVING_CATEGORIES,
   DEFAULT_ITEM_TEMPLATES,
+  isTemplateValidForPeriod,
 } from '../services/sampleData';
 
 import { BudgetSpreadsheetView } from './BudgetSpreadsheetView';
@@ -50,11 +52,14 @@ interface BudgetEntryViewProps {
   onAddMultipleEntries?: (entries: Omit<BudgetEntry, 'id' | 'createdAt'>[]) => void;
   onUpdateEntry?: (entryId: string, updated: Partial<BudgetEntry>) => void;
   onDeleteEntry: (entryId: string) => void;
-  onUpdateCategories: (customCats: {
-    expense: string[];
-    income: string[];
-    saving: string[];
-  }) => void;
+  onUpdateCategories: (
+    customCats: {
+      expense: string[];
+      income: string[];
+      saving: string[];
+    },
+    renamed?: { type: EntryType; oldName: string; newName: string }
+  ) => void;
   onUpdateTemplates: (templates: BudgetItemTemplate[]) => void;
   currencySymbol?: string;
 }
@@ -86,6 +91,15 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
 
   const handleSetViewLayout = (layout: 'spreadsheet' | 'standard') => {
     setViewLayout(layout);
+    if (frequency === 'monthly') {
+      if (!MONTH_NAMES.includes(selectedPeriodFilter) && selectedPeriodFilter !== 'all') {
+        setSelectedPeriodFilter(currentMonthName);
+      }
+    } else {
+      if (!BIWEEKLY_PERIODS.some((p) => p.id === selectedPeriodFilter) && selectedPeriodFilter !== 'all') {
+        setSelectedPeriodFilter(currentBiWeeklyPeriod);
+      }
+    }
     try {
       localStorage.setItem('capitalflow_budget_layout', layout);
     } catch {
@@ -101,27 +115,52 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
   useEffect(() => {
     if (frequency === 'monthly') {
       if (!MONTH_NAMES.includes(selectedPeriodFilter) && selectedPeriodFilter !== 'all') {
-        const match = selectedPeriodFilter.match(/^([A-Za-z]+)-P[12]$/);
-        if (match && MONTH_NAMES.includes(match[1])) {
-          setSelectedPeriodFilter(match[1]);
-        } else {
-          setSelectedPeriodFilter(currentMonthName);
-        }
+        setSelectedPeriodFilter(currentMonthName);
       }
     } else {
       if (!BIWEEKLY_PERIODS.some((p) => p.id === selectedPeriodFilter) && selectedPeriodFilter !== 'all') {
-        if (MONTH_NAMES.includes(selectedPeriodFilter)) {
-          setSelectedPeriodFilter(`${selectedPeriodFilter}-P1`);
-        } else {
-          setSelectedPeriodFilter(currentBiWeeklyPeriod);
-        }
+        setSelectedPeriodFilter(currentBiWeeklyPeriod);
       }
     }
   }, [frequency, currentMonthName, currentBiWeeklyPeriod, selectedPeriodFilter]);
 
+  const selectedPeriodFilterBtnRef = useRef<HTMLButtonElement>(null);
+  const periodScrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const scrollToSelected = () => {
+      const container = periodScrollContainerRef.current;
+      const btn = selectedPeriodFilterBtnRef.current;
+      if (!container || !btn) return;
+      const containerRect = container.getBoundingClientRect();
+      const btnRect = btn.getBoundingClientRect();
+      if (containerRect.width === 0) return;
+      const currentScroll = container.scrollLeft;
+      const targetLeft =
+        currentScroll +
+        (btnRect.left - containerRect.left) -
+        containerRect.width / 2 +
+        btnRect.width / 2;
+      const maxScroll = Math.max(0, container.scrollWidth - container.clientWidth);
+      const clampedLeft = Math.max(0, Math.min(targetLeft, maxScroll));
+      container.scrollTo({
+        left: clampedLeft,
+        behavior: 'smooth',
+      });
+    };
+
+    const rafId = requestAnimationFrame(scrollToSelected);
+    const timerId = setTimeout(scrollToSelected, 60);
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(timerId);
+    };
+  }, [selectedPeriodFilter, frequency, viewLayout]);
+
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [isSplitterOpen, setIsSplitterOpen] = useState<boolean>(false);
   const [isManagerModalOpen, setIsManagerModalOpen] = useState<boolean>(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
@@ -151,9 +190,13 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
 
   // Paycheck splitter state
   const [splitterPaycheck, setSplitterPaycheck] = useState<string>('3600');
-  const [splitterRent, setSplitterRent] = useState<string>('1200');
-  const [splitterGroceries, setSplitterGroceries] = useState<string>('350');
-  const [splitterSavings, setSplitterSavings] = useState<string>('1000');
+  const [splitterTemplateAmounts, setSplitterTemplateAmounts] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    itemTemplates.forEach((t) => {
+      init[t.id] = String(t.defaultEstimatedCost || 0);
+    });
+    return init;
+  });
   const [splitterAccountId, setSplitterAccountId] = useState<string>(accounts[0]?.id || '');
   const [splitterPeriod, setSplitterPeriod] = useState<string>(
     frequency === 'monthly' ? currentMonthName : currentBiWeeklyPeriod
@@ -185,31 +228,46 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
     }
   };
 
-  // Open modal with pre-selected period from current filter or active month
-  const handleOpenAddModal = (presetPeriod?: string) => {
-    const targetPeriod =
-      presetPeriod && presetPeriod !== 'all'
-        ? presetPeriod
-        : selectedPeriodFilter !== 'all'
-        ? selectedPeriodFilter
-        : frequency === 'monthly'
-        ? currentMonthName
-        : currentBiWeeklyPeriod;
-
-    setModalFrequency(frequency);
-    setModalPeriod(targetPeriod);
-    setFormDate(getRepresentativeDateForPeriod(targetPeriod, frequency, budget.year));
-    
-    // In entry modal the estimate text should already populated if it has an estimate amount
-    const firstTpl = itemTemplates.find((t) => t.type === formType);
-    if (firstTpl && firstTpl.defaultEstimatedCost > 0) {
-      setSelectedTemplateId(firstTpl.id);
-      setFormCategory(firstTpl.category);
-      setFormDescription(firstTpl.item);
-      setFormAmount(String(firstTpl.defaultEstimatedCost));
+  const handleOpenAddModal = (presetPeriod?: string, entryToEdit?: BudgetEntry) => {
+    if (entryToEdit) {
+      setEditingEntryId(entryToEdit.id);
+      setFormType(entryToEdit.type);
+      setFormCategory(entryToEdit.category);
+      setFormAmount(String(entryToEdit.amount));
+      setFormItem(entryToEdit.item || '');
+      setFormDescription(entryToEdit.description);
+      setModalPeriod(entryToEdit.period);
+      setFormDate(entryToEdit.date);
+      setModalFrequency(frequency);
     } else {
-      setFormAmount('');
-      setFormDescription('');
+      setEditingEntryId(null);
+      const targetPeriod =
+        presetPeriod && presetPeriod !== 'all'
+          ? presetPeriod
+          : selectedPeriodFilter !== 'all'
+          ? selectedPeriodFilter
+          : frequency === 'monthly'
+          ? currentMonthName
+          : currentBiWeeklyPeriod;
+
+      setModalFrequency(frequency);
+      setModalPeriod(targetPeriod);
+      setFormDate(getRepresentativeDateForPeriod(targetPeriod, frequency, budget.year));
+      
+      const firstTpl = itemTemplates.find((t) => t.type === 'expense');
+      if (firstTpl && firstTpl.defaultEstimatedCost > 0) {
+        setSelectedTemplateId(firstTpl.id);
+        setFormType('expense');
+        setFormCategory(firstTpl.category);
+        setFormItem(firstTpl.item);
+        setFormDescription(firstTpl.item);
+        setFormAmount(String(firstTpl.defaultEstimatedCost));
+      } else {
+        setFormType('expense');
+        setFormItem('');
+        setFormAmount('');
+        setFormDescription('');
+      }
     }
     setIsAddModalOpen(true);
   };
@@ -326,20 +384,37 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
 
     const selectedAcc = accounts.find((a) => a.id === formAccountId);
 
-    onAddEntry({
-      year: budget.year,
-      date: formDate,
-      period: modalPeriod,
-      periodIndex,
-      type: formType,
-      category: formCategory,
-      item: formItem,
-      amount: amountNum,
-      description: formDescription || formItem || formCategory,
-      savingAccountId: formType === 'saving' ? formAccountId : undefined,
-      savingAccountName: formType === 'saving' ? selectedAcc?.name : undefined,
-    });
+    if (editingEntryId && onUpdateEntry) {
+      onUpdateEntry(editingEntryId, {
+        year: budget.year,
+        date: formDate,
+        period: modalPeriod,
+        periodIndex,
+        type: formType,
+        category: formCategory,
+        item: formItem || formCategory,
+        amount: amountNum,
+        description: formDescription || formItem || formCategory,
+        savingAccountId: formType === 'saving' ? formAccountId : undefined,
+        savingAccountName: formType === 'saving' ? selectedAcc?.name : undefined,
+      });
+    } else {
+      onAddEntry({
+        year: budget.year,
+        date: formDate,
+        period: modalPeriod,
+        periodIndex,
+        type: formType,
+        category: formCategory,
+        item: formItem || formCategory,
+        amount: amountNum,
+        description: formDescription || formItem || formCategory,
+        savingAccountId: formType === 'saving' ? formAccountId : undefined,
+        savingAccountName: formType === 'saving' ? selectedAcc?.name : undefined,
+      });
+    }
 
+    setEditingEntryId(null);
     setFormAmount('');
     setFormDescription('');
     setFormItem('');
@@ -348,9 +423,6 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
 
   const handleApplyPaycheckSplitter = () => {
     const total = parseFloat(splitterPaycheck) || 0;
-    const rent = parseFloat(splitterRent) || 0;
-    const food = parseFloat(splitterGroceries) || 0;
-    const save = parseFloat(splitterSavings) || 0;
     if (total <= 0) return;
 
     const chosenPeriod = splitterPeriod;
@@ -365,60 +437,51 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
     const repDate = getRepresentativeDateForPeriod(chosenPeriod, frequency, budget.year);
     const acc = accounts.find((a) => a.id === splitterAccountId);
 
-    // 1. Add Income
-    onAddEntry({
+    const entriesToAdd: Omit<BudgetEntry, 'id' | 'createdAt'>[] = [];
+
+    // 1. Add Income entry for the paycheck
+    entriesToAdd.push({
       year: budget.year,
       date: repDate,
       period: chosenPeriod,
       periodIndex,
       type: 'income',
       category: 'Primary Salary / Paycheck',
+      item: 'Salary',
       amount: total,
       description: `Paycheck Salary (${chosenPeriod})`,
     });
 
-    // 2. Add Housing expense
-    if (rent > 0) {
-      onAddEntry({
-        year: budget.year,
-        date: repDate,
-        period: chosenPeriod,
-        periodIndex,
-        type: 'expense',
-        category: 'Housing & Rent',
-        amount: rent,
-        description: `Housing allocation from ${chosenPeriod} paycheck`,
+    // 2. Dynamically add entries for all itemTemplates valid for this period that have a non-zero amount in splitter state
+    itemTemplates
+      .filter((tpl) => tpl.type !== 'income' && isTemplateValidForPeriod(tpl, frequency, chosenPeriod))
+      .forEach((tpl) => {
+        const amtStr = splitterTemplateAmounts[tpl.id] || '0';
+        const amt = parseFloat(amtStr) || 0;
+        if (amt > 0) {
+          const isSaving = tpl.type === 'saving';
+          entriesToAdd.push({
+            year: budget.year,
+            date: repDate,
+            period: chosenPeriod,
+            periodIndex,
+            type: tpl.type,
+            category: tpl.category,
+            item: tpl.item,
+            amount: amt,
+            actualCost: amt,
+            estimatedCost: tpl.defaultEstimatedCost,
+            status: 'Paid',
+            description: `${tpl.item} allocation from ${chosenPeriod} paycheck`,
+            ...(isSaving ? { savingAccountId: acc?.id, savingAccountName: acc?.name } : {}),
+          });
+        }
       });
-    }
 
-    // 3. Add Groceries expense
-    if (food > 0) {
-      onAddEntry({
-        year: budget.year,
-        date: repDate,
-        period: chosenPeriod,
-        periodIndex,
-        type: 'expense',
-        category: 'Groceries & Food',
-        amount: food,
-        description: `Food allocation from ${chosenPeriod} paycheck`,
-      });
-    }
-
-    // 4. Add Saving -> Accumulates to separate Savings Ledger!
-    if (save > 0) {
-      onAddEntry({
-        year: budget.year,
-        date: repDate,
-        period: chosenPeriod,
-        periodIndex,
-        type: 'saving',
-        category: 'Index Funds / S&P 500 Brokerage',
-        amount: save,
-        description: `Paycheck savings transfer (${chosenPeriod})`,
-        savingAccountId: acc?.id,
-        savingAccountName: acc?.name,
-      });
+    if (onAddMultipleEntries && entriesToAdd.length > 0) {
+      onAddMultipleEntries(entriesToAdd);
+    } else {
+      entriesToAdd.forEach((entry) => onAddEntry(entry));
     }
 
     setIsSplitterOpen(false);
@@ -458,7 +521,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
 
   if (viewLayout === 'spreadsheet') {
     return (
-      <div className="space-y-4">
+      <div key="spreadsheet-layout-root" className="space-y-4">
         {/* Layout Switcher Bar */}
         <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs shadow-xs">
           <div className="flex items-center gap-2.5">
@@ -508,7 +571,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div key="standard-layout-root" className="space-y-6">
       {/* Layout Switcher Bar */}
       <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs shadow-xs">
         <div className="flex items-center gap-2.5">
@@ -627,31 +690,63 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
               <Calendar className="w-3.5 h-3.5 text-indigo-500" />
               <span>Period:</span>
             </div>
-            <div className="flex items-center gap-1 overflow-x-auto min-w-0 w-full pb-1 scrollbar-thin bg-slate-50 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
-              <button
-                onClick={() => setSelectedPeriodFilter('all')}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-colors shrink-0 ${
-                  selectedPeriodFilter === 'all'
-                    ? 'bg-indigo-600 text-white font-semibold shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
-                }`}
-              >
-                All Periods
-              </button>
-              {periodOptions.map((period) => (
+            {frequency === 'monthly' ? (
+              <div ref={periodScrollContainerRef} key="monthly-entry-container" className="flex items-center gap-1 overflow-x-auto min-w-0 w-full md:flex-1 pb-1 scrollbar-thin bg-slate-50 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
                 <button
-                  key={period}
-                  onClick={() => setSelectedPeriodFilter(period)}
-                  className={`px-2.5 py-1.5 rounded-lg font-semibold transition-colors shrink-0 ${
-                    selectedPeriodFilter === period
-                      ? 'bg-indigo-600 text-white shadow-xs'
+                  ref={selectedPeriodFilter === 'all' ? selectedPeriodFilterBtnRef : null}
+                  onClick={() => setSelectedPeriodFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-colors shrink-0 ${
+                    selectedPeriodFilter === 'all'
+                      ? 'bg-indigo-600 text-white font-semibold shadow-xs'
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                   }`}
                 >
-                  {period}
+                  All Periods
                 </button>
-              ))}
-            </div>
+                {MONTH_NAMES.map((period) => (
+                  <button
+                    key={period}
+                    ref={selectedPeriodFilter === period ? selectedPeriodFilterBtnRef : null}
+                    onClick={() => setSelectedPeriodFilter(period)}
+                    className={`px-2.5 py-1.5 rounded-lg font-semibold transition-colors shrink-0 ${
+                      selectedPeriodFilter === period
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {period}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div ref={periodScrollContainerRef} key="biweekly-entry-container" className="flex items-center gap-1 overflow-x-auto min-w-0 w-full md:flex-1 pb-1 scrollbar-thin bg-slate-50 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                <button
+                  ref={selectedPeriodFilter === 'all' ? selectedPeriodFilterBtnRef : null}
+                  onClick={() => setSelectedPeriodFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-colors shrink-0 ${
+                    selectedPeriodFilter === 'all'
+                      ? 'bg-indigo-600 text-white font-semibold shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  All Periods
+                </button>
+                {BIWEEKLY_PERIODS.map((p) => (
+                  <button
+                    key={p.id}
+                    ref={selectedPeriodFilter === p.id ? selectedPeriodFilterBtnRef : null}
+                    onClick={() => setSelectedPeriodFilter(p.id)}
+                    className={`px-2.5 py-1.5 rounded-lg font-semibold transition-colors shrink-0 ${
+                      selectedPeriodFilter === p.id
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {p.id}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Type Filter & Search input */}
@@ -878,13 +973,22 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                       </td>
 
                       <td className="py-3 px-4 text-center whitespace-nowrap">
-                        <button
-                          onClick={() => onDeleteEntry(entry.id)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors"
-                          title="Delete entry"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => handleOpenAddModal(undefined, entry)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors"
+                            title="Edit entry"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => onDeleteEntry(entry.id)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors"
+                            title="Delete entry"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -901,24 +1005,27 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
           <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[90vh] flex flex-col">
             
             {/* Modal Header */}
-            <div className="flex items-center justify-between mb-6">
+            <div className="p-5 sm:p-6 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                  {modalType === 'income' ? 'New Income' : modalType === 'expense' ? 'New Expense' : 'New Saving'}
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                  {editingEntryId ? 'Update Entry' : formType === 'income' ? 'New Income' : formType === 'expense' ? 'New Expense' : 'New Saving'}
                 </h3>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-500 mt-0.5">
                   Recording for {modalPeriod} ({budget.year})
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-xl"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-xl hover:bg-slate-200/50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                title="Close"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-6">
+            {/* Modal Body */}
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-5">
               
               {/* Period selection */}
               <div className="grid grid-cols-2 gap-4">
@@ -929,7 +1036,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                   <select
                     value={modalPeriod}
                     onChange={(e) => handleModalPeriodChange(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-semibold outline-none"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-semibold outline-none text-xs sm:text-sm"
                   >
                     {modalPeriodOptions.map((period) => (
                       <option key={period} value={period}>{period}</option>
@@ -941,17 +1048,16 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                     Mode
                   </label>
-                  <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-semibold text-slate-600">
+                  <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-semibold text-slate-600 dark:text-slate-300 text-xs sm:text-sm">
                     {modalFrequency === 'monthly' ? 'Monthly' : 'Bi-Weekly'}
                   </div>
                 </div>
               </div>
 
-              {/* 3. Form Details */}
-              <form onSubmit={handleCreateEntry} className="space-y-4">
+              {/* Form Details */}
+              <form onSubmit={handleCreateEntry} id="entry-form" className="space-y-4">
                 {/* Entry Type */}
                 <div>
-
                   <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
@@ -960,7 +1066,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                         setFormCategory(expenseCategories[0] || 'Budget');
                         setSelectedTemplateId('');
                       }}
-                      className={`py-2 px-3 rounded-xl font-semibold border text-center transition-all ${
+                      className={`py-2 px-2 sm:px-3 rounded-xl font-semibold border text-center transition-all text-xs sm:text-sm cursor-pointer ${
                         formType === 'expense'
                           ? 'bg-rose-50 dark:bg-rose-950/80 border-rose-400 text-rose-700 dark:text-rose-300 shadow-2xs'
                           : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50'
@@ -975,13 +1081,13 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                         setFormCategory(incomeCategories[0] || 'Salary');
                         setSelectedTemplateId('');
                       }}
-                      className={`py-2 px-3 rounded-xl font-semibold border text-center transition-all ${
+                      className={`py-2 px-2 sm:px-3 rounded-xl font-semibold border text-center transition-all text-xs sm:text-sm cursor-pointer ${
                         formType === 'income'
                           ? 'bg-emerald-50 dark:bg-emerald-950/80 border-emerald-400 text-emerald-700 dark:text-emerald-300 shadow-2xs'
                           : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50'
                       }`}
                     >
-                      Income / Salary
+                      Income
                     </button>
                     <button
                       type="button"
@@ -990,61 +1096,67 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                         setFormCategory(savingCategories[0] || 'Savings');
                         setSelectedTemplateId('');
                       }}
-                      className={`py-2 px-3 rounded-xl font-semibold border text-center transition-all ${
+                      className={`py-2 px-2 sm:px-3 rounded-xl font-semibold border text-center transition-all text-xs sm:text-sm cursor-pointer ${
                         formType === 'saving'
                           ? 'bg-indigo-50 dark:bg-indigo-950/80 border-indigo-400 text-indigo-700 dark:text-indigo-300 shadow-2xs'
                           : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50'
                       }`}
                     >
-                      Saving (To Ledger)
+                      Saving
                     </button>
                   </div>
                 </div>
 
                 {/* Pre-populate from Estimated Budget Templates */}
-                <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-800">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[11px] font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                      <span>Pre-Populate from Estimated Budget</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setIsManagerModalOpen(true)}
-                      className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
+                {!editingEntryId && (
+                  <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-800">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Pre-Populate from Estimated Budget</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setIsManagerModalOpen(true)}
+                        className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer"
+                      >
+                        Manage Templates
+                      </button>
+                    </div>
+                    <select
+                      value={selectedTemplateId}
+                      onChange={(e) => {
+                        const tplId = e.target.value;
+                        setSelectedTemplateId(tplId);
+                        const tpl = itemTemplates.find((t) => t.id === tplId);
+                        if (tpl) {
+                          setFormType(tpl.type);
+                          setFormCategory(tpl.category);
+                          setFormAmount(String(tpl.defaultEstimatedCost || ''));
+                          setFormDescription(tpl.item);
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-lg text-slate-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-amber-500"
                     >
-                      Manage Templates
-                    </button>
+                      <option value="">⚡ Select an Item to Pre-Populate...</option>
+                      {itemTemplates
+                        .filter((t) => {
+                          if (t.type !== formType) return false;
+                          return isTemplateValidForPeriod(t, frequency, modalPeriod);
+                        })
+                        .map((tpl) => (
+                          <option key={tpl.id} value={tpl.id}>
+                            {tpl.item} ({tpl.category}) — Est: {currencySymbol}{formatNumber(tpl.defaultEstimatedCost)}
+                          </option>
+                        ))}
+                    </select>
                   </div>
-                  <select
-                    value={selectedTemplateId}
-                    onChange={(e) => {
-                      const tplId = e.target.value;
-                      setSelectedTemplateId(tplId);
-                      const tpl = itemTemplates.find((t) => t.id === tplId);
-                      if (tpl) {
-                        setFormType(tpl.type);
-                        setFormCategory(tpl.category);
-                        setFormAmount(String(tpl.defaultEstimatedCost || ''));
-                        setFormDescription(tpl.item);
-                      }
-                    }}
-                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-lg text-slate-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-amber-500"
-                  >
-                    <option value="">⚡ Select an Item to Pre-Populate...</option>
-                    {itemTemplates
-                      .filter((t) => t.type === formType)
-                      .map((tpl) => (
-                        <option key={tpl.id} value={tpl.id}>
-                          {tpl.item} ({tpl.category}) — Est: {currencySymbol}{formatNumber(tpl.defaultEstimatedCost)}
-                        </option>
-                      ))}
-                  </select>
-                </div>
+                )}
 
                 {/* Amount & Date in Period */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Amount</label>
                     <input
                       type="number"
                       step="0.01"
@@ -1058,6 +1170,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                   </div>
 
                   <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Date</label>
                     <input
                       type="date"
                       required
@@ -1070,6 +1183,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
 
                 {/* Category Selection */}
                 <div>
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Category</label>
                   <input
                     type="text"
                     list="category-options"
@@ -1091,6 +1205,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                 </div>
                 
                 <div>
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Item Name</label>
                   <input
                     type="text"
                     placeholder="Item Name (optional)"
@@ -1123,6 +1238,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
 
                 {/* Description */}
                 <div>
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Description</label>
                   <input
                     type="text"
                     placeholder="Description"
@@ -1131,26 +1247,27 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
-
-                {/* Submit button */}
-                <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setIsAddModalOpen(false)}
-                    className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 rounded-xl font-medium"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-xs"
-                  >
-                    Record for {modalPeriod}
-                  </button>
-                </div>
               </form>
-
             </div>
+
+            {/* Modal Footer / Actions */}
+            <div className="p-4 sm:p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                className="px-4 py-2.5 text-xs sm:text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-700 rounded-xl font-medium transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="entry-form"
+                className="px-5 py-2.5 text-xs sm:text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-xs transition-colors cursor-pointer"
+              >
+                {editingEntryId ? 'Update Entry' : `Record for ${modalPeriod}`}
+              </button>
+            </div>
+
           </div>
         </div>
       )}
@@ -1211,60 +1328,75 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-slate-600 dark:text-slate-400 font-medium mb-1">
-                      Housing / Rent ({currencySymbol})
-                    </label>
-                    <input
-                      type="number"
-                      value={splitterRent}
-                      onChange={(e) => setSplitterRent(e.target.value)}
-                      className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-lg font-mono outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-600 dark:text-slate-400 font-medium mb-1">
-                      Groceries &amp; Food ({currencySymbol})
-                    </label>
-                    <input
-                      type="number"
-                      value={splitterGroceries}
-                      onChange={(e) => setSplitterGroceries(e.target.value)}
-                      className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-lg font-mono outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="p-3 bg-indigo-50 dark:bg-indigo-950/50 rounded-xl border border-indigo-200 dark:border-indigo-800 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-indigo-700 dark:text-indigo-300 font-semibold">
-                      Savings Allocation ({currencySymbol})
-                    </label>
-                    <span className="text-[10px] text-emerald-600 font-semibold">
-                      Accumulates to Ledger
-                    </span>
-                  </div>
-                  <input
-                    type="number"
-                    value={splitterSavings}
-                    onChange={(e) => setSplitterSavings(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-indigo-200 rounded-lg font-mono text-sm font-bold text-indigo-600 outline-none"
-                  />
-                  <div>
-                    <label className="block text-[11px] text-slate-500 mb-1">Target Account</label>
-                    <select
-                      value={splitterAccountId}
-                      onChange={(e) => setSplitterAccountId(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-indigo-200 rounded-lg text-xs"
-                    >
-                      {accounts.map((acc) => (
-                        <option key={acc.id} value={acc.id}>
-                          {acc.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                <div className="space-y-3 max-h-[260px] overflow-y-auto pr-1">
+                  <label className="block text-slate-600 dark:text-slate-400 font-semibold">
+                    Template Allocations
+                  </label>
+                  {itemTemplates
+                    .filter((t) => t.type !== 'income' && isTemplateValidForPeriod(t, frequency, splitterPeriod))
+                    .map((tpl) => {
+                      const isSaving = tpl.type === 'saving';
+                      const val = splitterTemplateAmounts[tpl.id] ?? String(tpl.defaultEstimatedCost || 0);
+                      return (
+                        <div
+                          key={tpl.id}
+                          className={`p-3 rounded-xl border ${
+                            isSaving
+                              ? 'bg-indigo-50/50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800'
+                              : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+                          } space-y-2`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="font-bold text-slate-900 dark:text-white text-xs">
+                                {tpl.item}
+                              </span>
+                              <span className="ml-2 text-[10px] text-slate-500 uppercase tracking-wider">
+                                ({tpl.category})
+                              </span>
+                            </div>
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
+                              tpl.type === 'income' ? 'bg-emerald-100 text-emerald-700' :
+                              tpl.type === 'expense' ? 'bg-amber-100 text-amber-700' :
+                              'bg-indigo-100 text-indigo-700'
+                            }`}>
+                              {tpl.type}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-500 font-mono">{currencySymbol}</span>
+                            <input
+                              type="number"
+                              value={val}
+                              onChange={(e) => {
+                                const newVal = e.target.value;
+                                setSplitterTemplateAmounts((prev) => ({
+                                  ...prev,
+                                  [tpl.id]: newVal,
+                                }));
+                              }}
+                              className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono text-xs font-bold outline-none focus:ring-1 focus:ring-indigo-500"
+                            />
+                          </div>
+                          {isSaving && (
+                            <div className="pt-1">
+                              <label className="block text-[10px] text-slate-500 mb-0.5">Target Account</label>
+                              <select
+                                value={splitterAccountId}
+                                onChange={(e) => setSplitterAccountId(e.target.value)}
+                                className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-indigo-200 rounded-lg text-xs"
+                              >
+                                {accounts.map((acc) => (
+                                  <option key={acc.id} value={acc.id}>
+                                    {acc.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
 
                 {/* Remaining unallocated from paycheck preview */}
@@ -1276,9 +1408,11 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
                       Math.max(
                         0,
                         (parseFloat(splitterPaycheck) || 0) -
-                          (parseFloat(splitterRent) || 0) -
-                          (parseFloat(splitterGroceries) || 0) -
-                          (parseFloat(splitterSavings) || 0)
+                          itemTemplates
+                            .filter((t) => t.type !== 'income' && isTemplateValidForPeriod(t, frequency, splitterPeriod))
+                            .reduce((sum, tpl) => {
+                              return sum + (parseFloat(splitterTemplateAmounts[tpl.id] ?? String(tpl.defaultEstimatedCost || 0)) || 0);
+                            }, 0)
                       )
                     )}
                   </span>

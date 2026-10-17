@@ -29,6 +29,7 @@ interface HeaderProps {
   onSignOut: () => void;
   onOpenDriveModal: () => void;
   onTriggerSync: () => void;
+  hasUnsavedChanges?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -45,26 +46,27 @@ export const Header: React.FC<HeaderProps> = ({
   onSignOut,
   onOpenDriveModal,
   onTriggerSync,
+  hasUnsavedChanges = false,
 }) => {
   const [showYearDropdown, setShowYearDropdown] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
 
   return (
     <header className="sticky top-0 z-40 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-4">
+      <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16 gap-2 sm:gap-4">
           
           {/* Brand & Logo */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-emerald-400 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
-              <Wallet2 className="w-5 h-5" />
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-emerald-400 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 shrink-0">
+              <Wallet2 className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-lg text-slate-900 dark:text-white tracking-tight">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 truncate">
+                <span className="font-bold text-base sm:text-lg text-slate-900 dark:text-white tracking-tight truncate">
                   CapitalFlow
                 </span>
-                <span className="text-[10px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+                <span className="text-[9px] sm:text-[10px] font-semibold tracking-wider uppercase px-1 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hidden sm:inline-block shrink-0">
                   Drive DB
                 </span>
               </div>
@@ -109,7 +111,7 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
             <button
               onClick={() => onSelectTab('drive')}
-              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1 ${
+              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                 activeTab === 'drive'
                   ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -117,22 +119,28 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Cloud className="w-3.5 h-3.5" />
               <span>Drive Storage</span>
+              {driveStatus.isSignedIn && hasUnsavedChanges && (
+                <span
+                  className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"
+                  title="Local changes not yet synced to Google Drive"
+                />
+              )}
             </button>
           </nav>
 
           {/* Right Action Controls: Year, Frequency & Google Auth */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             
             {/* Year Selector Dropdown */}
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setShowYearDropdown(!showYearDropdown)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl transition-colors border border-slate-200/80 dark:border-slate-700/80"
+                className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl transition-colors border border-slate-200/80 dark:border-slate-700/80"
               >
-                <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                 <span>{currentYear}</span>
-                <ChevronDown className="w-3 h-3 text-slate-400" />
+                <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
               </button>
 
               {showYearDropdown && (
@@ -242,9 +250,18 @@ export const Header: React.FC<HeaderProps> = ({
                       <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                         {driveStatus.userEmail}
                       </div>
-                      <div className="mt-1 flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>Connected to Google Drive</span>
+                      <div className="mt-1 flex items-center gap-1 text-[10px] font-medium">
+                        {hasUnsavedChanges ? (
+                          <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                            Unsaved local changes
+                          </span>
+                        ) : (
+                          <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Connected to Google Drive
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -255,10 +272,17 @@ export const Header: React.FC<HeaderProps> = ({
                           onTriggerSync();
                         }}
                         disabled={driveStatus.isSyncing}
-                        className="w-full text-left px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-2 transition-colors"
+                        className="w-full text-left px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-between transition-colors"
                       >
-                        <RefreshCw className={`w-3.5 h-3.5 ${driveStatus.isSyncing ? 'animate-spin text-indigo-500' : 'text-slate-400'}`} />
-                        <span>Sync Changes Now</span>
+                        <span className="flex items-center gap-2">
+                          <RefreshCw className={`w-3.5 h-3.5 ${driveStatus.isSyncing ? 'animate-spin text-indigo-500' : 'text-slate-400'}`} />
+                          <span>Sync Changes Now</span>
+                        </span>
+                        {hasUnsavedChanges && (
+                          <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300">
+                            Pending
+                          </span>
+                        )}
                       </button>
 
                       <button
@@ -305,7 +329,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={onSignInWithGoogle}
-                className="flex items-center gap-2.5 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 shadow-2xs transition-all text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                className="flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 shadow-2xs transition-all text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
               >
                 <svg
                   version="1.1"

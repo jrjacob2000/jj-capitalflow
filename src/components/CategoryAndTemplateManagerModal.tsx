@@ -33,11 +33,14 @@ interface CategoryAndTemplateManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
   budget: YearBudgetData;
-  onUpdateCategories: (customCats: {
-    expense: string[];
-    income: string[];
-    saving: string[];
-  }) => void;
+  onUpdateCategories: (
+    customCats: {
+      expense: string[];
+      income: string[];
+      saving: string[];
+    },
+    renamed?: { type: EntryType; oldName: string; newName: string }
+  ) => void;
   onUpdateTemplates: (templates: BudgetItemTemplate[]) => void;
   currencySymbol?: string;
 }
@@ -70,6 +73,8 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
   const [tplCategory, setTplCategory] = useState<string>(expenseCats[0] || 'Budget');
   const [tplItem, setTplItem] = useState<string>('');
   const [tplEstimated, setTplEstimated] = useState<string>('');
+  const [tplFrequency, setTplFrequency] = useState<'monthly' | 'bi-weekly' | 'both'>('monthly');
+  const [tplBiweeklyPeriod, setTplBiweeklyPeriod] = useState<'P1' | 'P2' | 'both'>('both');
   const [tplMethod, setTplMethod] = useState<PaymentMethod>('Bank Transfer');
   const [tplWithdraw, setTplWithdraw] = useState<boolean>(false);
 
@@ -113,11 +118,11 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
     const newName = editingCat.current.trim();
 
     const updated = {
-      expense: expenseCats.map((c) => (c === oldName ? newName : c)),
-      income: incomeCats.map((c) => (c === oldName ? newName : c)),
-      saving: savingCats.map((c) => (c === oldName ? newName : c)),
+      expense: type === 'expense' ? expenseCats.map((c) => (c === oldName ? newName : c)) : expenseCats,
+      income: type === 'income' ? incomeCats.map((c) => (c === oldName ? newName : c)) : incomeCats,
+      saving: type === 'saving' ? savingCats.map((c) => (c === oldName ? newName : c)) : savingCats,
     };
-    onUpdateCategories(updated);
+    onUpdateCategories(updated, { type, oldName, newName });
     setEditingCat(null);
   };
 
@@ -128,6 +133,8 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
     setTplCategory(expenseCats[0] || 'Budget');
     setTplItem('');
     setTplEstimated('');
+    setTplFrequency('monthly');
+    setTplBiweeklyPeriod('both');
     setTplMethod('Bank Transfer');
     setTplWithdraw(false);
     setIsTemplateFormOpen(true);
@@ -139,6 +146,8 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
     setTplCategory(tpl.category);
     setTplItem(tpl.item);
     setTplEstimated(String(tpl.defaultEstimatedCost || ''));
+    setTplFrequency(tpl.frequency || 'monthly');
+    setTplBiweeklyPeriod(tpl.biweeklyPeriod || 'both');
     setTplMethod(tpl.defaultPaymentMethod || 'Bank Transfer');
     setTplWithdraw(Boolean(tpl.toBeWithdrawn));
     setIsTemplateFormOpen(true);
@@ -159,6 +168,8 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
               category: tplCategory,
               item: tplItem.trim(),
               defaultEstimatedCost: estNum,
+              frequency: tplFrequency,
+              biweeklyPeriod: tplBiweeklyPeriod,
               defaultPaymentMethod: tplMethod,
               toBeWithdrawn: tplWithdraw,
             }
@@ -171,6 +182,8 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
         category: tplCategory,
         item: tplItem.trim(),
         defaultEstimatedCost: estNum,
+        frequency: tplFrequency,
+        biweeklyPeriod: tplBiweeklyPeriod,
         defaultPaymentMethod: tplMethod,
         toBeWithdrawn: tplWithdraw,
       };
@@ -217,7 +230,7 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
         </div>
 
         {/* Tab Navigation */}
-        <div className="px-6 pt-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2 overflow-x-auto text-xs font-semibold">
+        <div className="px-4 sm:px-6 pt-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2 overflow-x-auto text-xs font-semibold shrink-0">
           <button
             onClick={() => setActiveTab('estimates')}
             className={`pb-3 px-3 border-b-2 transition-all flex items-center gap-1.5 shrink-0 ${
@@ -292,13 +305,14 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
               </div>
 
               {/* Template Items Table */}
-              <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-2xs">
-                <table className="w-full text-left text-xs">
+              <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto shadow-2xs">
+                <table className="w-full text-left text-xs min-w-[650px]">
                   <thead className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-700">
                     <tr>
                       <th className="py-2.5 px-4">Line Item</th>
                       <th className="py-2.5 px-4">Type</th>
                       <th className="py-2.5 px-4">Category</th>
+                      <th className="py-2.5 px-4">Frequency</th>
                       <th className="py-2.5 px-4 text-right">Default Estimated Cost</th>
                       <th className="py-2.5 px-4">Default Payment Channel</th>
                       <th className="py-2.5 px-3 text-center">ATM Withdrawal</th>
@@ -326,6 +340,15 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
                         </td>
                         <td className="py-2.5 px-4 text-slate-600 dark:text-slate-400">
                           {tpl.category}
+                        </td>
+                        <td className="py-2.5 px-4">
+                          <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium text-[10px]">
+                            {tpl.frequency === 'bi-weekly'
+                              ? `Bi-Weekly (${tpl.biweeklyPeriod || 'both'})`
+                              : tpl.frequency === 'both'
+                              ? `Both (${tpl.biweeklyPeriod || 'both'})`
+                              : 'Monthly'}
+                          </span>
                         </td>
                         <td className="py-2.5 px-4 text-right font-mono font-bold text-slate-900 dark:text-white">
                           {currencySymbol}{formatNumber(tpl.defaultEstimatedCost)}
@@ -601,6 +624,34 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
                 />
               </div>
+
+              <div>
+                <label className="block text-slate-600 font-semibold mb-1">Frequency</label>
+                <select
+                  value={tplFrequency}
+                  onChange={(e) => setTplFrequency(e.target.value as 'monthly' | 'bi-weekly' | 'both')}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                >
+                  <option value="monthly">Monthly (Applies to Monthly periods)</option>
+                  <option value="bi-weekly">Bi-Weekly (Applies to P1 / P2 periods)</option>
+                  <option value="both">Both (Monthly &amp; Bi-Weekly)</option>
+                </select>
+              </div>
+
+              {(tplFrequency === 'bi-weekly' || tplFrequency === 'both') && (
+                <div>
+                  <label className="block text-slate-600 font-semibold mb-1">Bi-Weekly Period</label>
+                  <select
+                    value={tplBiweeklyPeriod}
+                    onChange={(e) => setTplBiweeklyPeriod(e.target.value as 'P1' | 'P2' | 'both')}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                  >
+                    <option value="both">Both (P1 &amp; P2)</option>
+                    <option value="P1">P1 (First Half / 1st-15th)</option>
+                    <option value="P2">P2 (Second Half / 16th-End)</option>
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-slate-600 font-semibold mb-1">

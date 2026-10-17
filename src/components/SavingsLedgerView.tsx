@@ -73,6 +73,8 @@ const WITHDRAWAL_REASONS: string[] = [
 interface SavingsLedgerViewProps {
   ledger: SavingsLedgerData;
   onAddTransaction: (tx: Omit<SavingsTransaction, 'id' | 'runningTotalCapital'>) => void;
+  onUpdateTransaction?: (txId: string, updated: Partial<SavingsTransaction>) => void;
+  onDeleteTransaction?: (txId: string) => void;
   onAddAccount: (account: Omit<SavingsAccount, 'id'>) => void;
   onUpdateAccount?: (accountId: string, updates: Partial<SavingsAccount>) => void;
   onDeleteAccount?: (accountId: string, reassignToAccountId?: string) => void;
@@ -82,6 +84,8 @@ interface SavingsLedgerViewProps {
 export const SavingsLedgerView: React.FC<SavingsLedgerViewProps> = ({
   ledger,
   onAddTransaction,
+  onUpdateTransaction,
+  onDeleteTransaction,
   onAddAccount,
   onUpdateAccount,
   onDeleteAccount,
@@ -137,6 +141,40 @@ export const SavingsLedgerView: React.FC<SavingsLedgerViewProps> = ({
   const [isDeleteAccountModalOpen, setIsDeleteAccountModalOpen] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState<SavingsAccount | null>(null);
   const [reassignAccountId, setReassignAccountId] = useState('');
+
+  // Edit Transaction modal states
+  const [editingTx, setEditingTx] = useState<SavingsTransaction | null>(null);
+  const [editTxAmount, setEditTxAmount] = useState('');
+  const [editTxDate, setEditTxDate] = useState('');
+  const [editTxNote, setEditTxNote] = useState('');
+  const [editTxAccountId, setEditTxAccountId] = useState('');
+
+  const handleOpenEditTx = (tx: SavingsTransaction) => {
+    setEditingTx(tx);
+    setEditTxAmount(String(tx.amount));
+    setEditTxDate(tx.date);
+    setEditTxNote(tx.note);
+    setEditTxAccountId(tx.accountId);
+  };
+
+  const handleSaveEditTx = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTx || !onUpdateTransaction) return;
+    const amt = parseFloat(editTxAmount);
+    if (isNaN(amt) || amt <= 0) return;
+    const targetAcc = ledger.accounts.find((a) => a.id === editTxAccountId) || ledger.accounts[0];
+    const d = new Date(editTxDate);
+    onUpdateTransaction(editingTx.id, {
+      amount: amt,
+      date: editTxDate,
+      year: d.getFullYear(),
+      period: d.toLocaleString('default', { month: 'short' }),
+      note: editTxNote.trim() || editingTx.note,
+      accountId: targetAcc ? targetAcc.id : editingTx.accountId,
+      accountName: targetAcc ? targetAcc.name : editingTx.accountName,
+    });
+    setEditingTx(null);
+  };
 
   // Compound simulator state
   const [simYears, setSimYears] = useState(10);
@@ -578,6 +616,7 @@ export const SavingsLedgerView: React.FC<SavingsLedgerViewProps> = ({
                   <th className="py-3 px-4">Note / Memo</th>
                   <th className="py-3 px-4 text-right">Flow / Change</th>
                   <th className="py-3 px-4 text-right">Running Total Capital</th>
+                  <th className="py-3 px-4 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -638,6 +677,36 @@ export const SavingsLedgerView: React.FC<SavingsLedgerViewProps> = ({
                     </td>
                     <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
                       {currencySymbol}{formatNumber(tx.runningTotalCapital || 0)}
+                    </td>
+                    <td className="py-3 px-4 text-center whitespace-nowrap">
+                      {tx.source !== 'budget_sync' ? (
+                        <div className="flex items-center justify-center gap-1">
+                          {onUpdateTransaction && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditTx(tx)}
+                              className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors cursor-pointer"
+                              title="Edit transaction"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {onDeleteTransaction && (
+                            <button
+                              type="button"
+                              onClick={() => onDeleteTransaction(tx.id)}
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                              title="Delete transaction"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-400" title="Managed via Budget Sheet">
+                          Synced
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1951,6 +2020,98 @@ export const SavingsLedgerView: React.FC<SavingsLedgerViewProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Ledger Transaction */}
+      {editingTx && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-2xl text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                Edit Ledger Transaction
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingTx(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveEditTx} className="mt-4 space-y-3.5">
+              <div>
+                <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">
+                  Account
+                </label>
+                <select
+                  value={editTxAccountId}
+                  onChange={(e) => setEditTxAccountId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                >
+                  {ledger.accounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name} ({currencySymbol}{formatNumber(acc.balance)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">
+                    Amount ({currencySymbol})
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    value={editTxAmount}
+                    onChange={(e) => setEditTxAmount(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-sm text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">
+                    Date
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={editTxDate}
+                    onChange={(e) => setEditTxDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">
+                  Note / Memo
+                </label>
+                <input
+                  type="text"
+                  value={editTxNote}
+                  onChange={(e) => setEditTxNote(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                />
+              </div>
+              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingTx(null)}
+                  className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl cursor-pointer shadow-xs"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
