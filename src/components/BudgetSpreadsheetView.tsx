@@ -238,6 +238,91 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
     };
   }, [selectedPeriod, frequency]);
 
+  const [autoFillMessage, setAutoFillMessage] = useState<string | null>(null);
+
+  const handleAutoFillPeriodFromTemplates = () => {
+    const validTemplates = itemTemplates.filter((t) =>
+      isTemplateValidForPeriod(t, frequency, selectedPeriod)
+    );
+
+    if (validTemplates.length === 0) {
+      setAutoFillMessage(
+        `No estimate templates found for ${selectedPeriod}. Click "Estimates & Categories" to create your templates first.`
+      );
+      setTimeout(() => setAutoFillMessage(null), 4000);
+      return;
+    }
+
+    const existingInPeriod = budget.entries.filter((e) => e.period === selectedPeriod);
+    const unpopulated = validTemplates.filter((t) => {
+      return !existingInPeriod.some(
+        (e) =>
+          e.type === t.type &&
+          (e.item?.toLowerCase().trim() === t.item.toLowerCase().trim() ||
+            e.category.toLowerCase().trim() === t.item.toLowerCase().trim())
+      );
+    });
+
+    if (unpopulated.length === 0) {
+      setAutoFillMessage(
+        `All ${validTemplates.length} planned items from your template are already recorded in ${selectedPeriod}!`
+      );
+      setTimeout(() => setAutoFillMessage(null), 4000);
+      return;
+    }
+
+    let periodIndex = 0;
+    let periodDate = `${budget.year}-01-01`;
+    if (frequency === 'monthly') {
+      periodIndex = Math.max(0, MONTH_NAMES.indexOf(selectedPeriod));
+      periodDate = `${budget.year}-${String(periodIndex + 1).padStart(2, '0')}-01`;
+    } else {
+      const bw = BIWEEKLY_PERIODS[periodIndex];
+      const mIdx = Math.max(0, MONTH_NAMES.indexOf(bw?.approxMonth || 'Jan'));
+      const isP2 = bw?.id.endsWith('-P2');
+      periodDate = `${budget.year}-${String(mIdx + 1).padStart(2, '0')}-${isP2 ? '16' : '01'}`;
+    }
+
+    const defaultAcc = accounts[0];
+    const newEntries: Omit<BudgetEntry, 'id' | 'createdAt'>[] = unpopulated.map((t) => {
+      const targetAcc = t.defaultSavingAccountId
+        ? accounts.find((a) => a.id === t.defaultSavingAccountId) || defaultAcc
+        : defaultAcc;
+
+      return {
+        year: budget.year,
+        period: selectedPeriod,
+        periodIndex,
+        date: periodDate,
+        type: t.type,
+        category: t.category,
+        item: t.item,
+        estimatedCost: t.defaultEstimatedCost,
+        actualCost: t.type === 'saving' ? t.defaultEstimatedCost : 0,
+        amount: t.type === 'saving' ? t.defaultEstimatedCost : 0,
+        paymentMethod: t.defaultPaymentMethod || 'Bank Transfer',
+        difference: t.defaultEstimatedCost,
+        status: (t.type === 'saving' ? 'Paid' : 'Pending') as 'Paid' | 'Pending',
+        reference: 'Auto-filled from template',
+        toBeWithdrawn: Boolean(t.toBeWithdrawn),
+        description: t.item || t.category,
+        savingAccountId: t.type === 'saving' ? targetAcc?.id : undefined,
+        savingAccountName: t.type === 'saving' ? targetAcc?.name : undefined,
+      };
+    });
+
+    if (onAddMultipleEntries) {
+      onAddMultipleEntries(newEntries);
+    } else {
+      newEntries.forEach((e) => onAddEntry(e));
+    }
+
+    setAutoFillMessage(
+      `Populated ${newEntries.length} planned items into ${selectedPeriod} from your Estimate Template!`
+    );
+    setTimeout(() => setAutoFillMessage(null), 4000);
+  };
+
   // Period lists
   const periodList =
     frequency === 'monthly' ? MONTH_NAMES : BIWEEKLY_PERIODS.map((p) => p.id);
@@ -304,6 +389,9 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
         // Not yet recorded: Sheet is initialized with the estimate
         const est = tpl.defaultEstimatedCost || 0;
         const repDate = new Date().toISOString().split('T')[0].replace(/^\d{4}/, String(budget.year));
+        const tplTargetAcc = tpl.defaultSavingAccountId
+          ? accounts.find((a) => a.id === tpl.defaultSavingAccountId) || accounts[0]
+          : accounts[0];
 
         const row: SheetRowItem = {
           id: `virtual-${tpl.id}-${selectedPeriod}`,
@@ -321,6 +409,8 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
           reference: '',
           date: repDate,
           toBeWithdrawn: Boolean(tpl.toBeWithdrawn),
+          savingAccountId: tpl.type === 'saving' ? tplTargetAcc?.id : undefined,
+          savingAccountName: tpl.type === 'saving' ? tplTargetAcc?.name : undefined,
         };
 
         if (tpl.type === 'income') {
@@ -627,7 +717,12 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
       const bwIdx = BIWEEKLY_PERIODS.findIndex((p) => p.id === selectedPeriod);
       periodIndex = bwIdx >= 0 ? bwIdx : 0;
     }
-    const defaultAcc = accounts[0];
+    const matchedTpl = itemTemplates.find(
+      (t) => t.item.toLowerCase() === row.item.toLowerCase() && t.type === row.type
+    );
+    const targetAccId = row.savingAccountId || matchedTpl?.defaultSavingAccountId || accounts[0]?.id;
+    const targetAcc = accounts.find((a) => a.id === targetAccId) || accounts[0];
+
     onAddEntry({
       year: budget.year,
       period: selectedPeriod,
@@ -645,8 +740,8 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
       reference: '',
       toBeWithdrawn: Boolean(row.toBeWithdrawn),
       description: row.item || row.category,
-      savingAccountId: row.type === 'saving' ? defaultAcc?.id : undefined,
-      savingAccountName: row.type === 'saving' ? defaultAcc?.name : undefined,
+      savingAccountId: row.type === 'saving' ? targetAcc?.id : undefined,
+      savingAccountName: row.type === 'saving' ? targetAcc?.name : undefined,
     });
   };
 
@@ -992,6 +1087,15 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
             </button>
 
             <button
+              onClick={handleAutoFillPeriodFromTemplates}
+              className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              title={`Populate ${selectedPeriod} with all planned items from your Estimate Budget Template`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+              <span>Auto-Fill {selectedPeriod}</span>
+            </button>
+
+            <button
               onClick={() => setIsManagerModalOpen(true)}
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
               title="Manage monthly estimated budgets and expense, income, and saving categories"
@@ -1088,6 +1192,22 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
             </div>
           )}
         </div>
+
+        {/* Auto-Fill Feedback Notification Banner */}
+        {autoFillMessage && (
+          <div className="mt-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 flex items-center justify-between animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>{autoFillMessage}</span>
+            </div>
+            <button
+              onClick={() => setAutoFillMessage(null)}
+              className="p-1 hover:bg-amber-100 dark:hover:bg-amber-900/60 rounded text-amber-700 dark:text-amber-300 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* TOP 3-CARD PERIOD SUMMARY: REMAINING SALARY & TOTALS */}
@@ -1447,9 +1567,19 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                           <div className="flex items-center justify-between gap-1">
                             <span className="truncate">{exp.item}</span>
                             {isSaving && (
-                              <span className="px-1 py-0.2 rounded text-[9px] bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-semibold shrink-0">
-                                Funds
-                              </span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <span className="px-1 py-0.5 rounded text-[9px] bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-semibold">
+                                  Funds
+                                </span>
+                                {exp.savingAccountName && (
+                                  <span
+                                    className="px-1.5 py-0.5 rounded text-[9px] bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-semibold border border-emerald-200/80 dark:border-emerald-800/80 hidden sm:inline-block truncate max-w-[120px]"
+                                    title={`Deposits to ${exp.savingAccountName}`}
+                                  >
+                                    &rarr; {exp.savingAccountName}
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
                         </td>
@@ -2173,6 +2303,7 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
         isOpen={isManagerModalOpen}
         onClose={() => setIsManagerModalOpen(false)}
         budget={budget}
+        accounts={accounts}
         onUpdateCategories={onUpdateCategories}
         onUpdateTemplates={onUpdateTemplates}
         currencySymbol={currencySymbol}

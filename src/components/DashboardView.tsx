@@ -68,6 +68,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const savingsRate = totalIncome > 0 ? (totalSavings / totalIncome) * 100 : 0;
   const netCashflow = totalIncome - totalExpenses - totalSavings;
 
+  // Average monthly living expense
+  const activeExpensePeriods = Math.max(
+    1,
+    new Set(activeEntries.filter((e) => e.type === 'expense' && (e.actualCost ?? e.amount ?? 0) > 0).map((e) => e.period)).size
+  );
+  const avgMonthlyExpense = totalExpenses > 0
+    ? totalExpenses / activeExpensePeriods
+    : budget.itemTemplates
+    ? budget.itemTemplates.filter((t) => t.type === 'expense').reduce((sum, t) => sum + (t.defaultEstimatedCost || 0), 0)
+    : 0;
+
   // Latest capital from ledger (running total or sum of account balances)
   const accountsBalanceSum = ledger.accounts.reduce((sum, a) => sum + (a.balance || 0), 0);
   const currentTotalCapital =
@@ -75,6 +86,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       ? ledger.transactions[ledger.transactions.length - 1].runningTotalCapital ??
         accountsBalanceSum
       : accountsBalanceSum || ledger.initialCapital;
+
+  // Total liquid reserves
+  const liquidAccountTypes = new Set([
+    'Digital Bank (High-Yield)',
+    'Traditional Bank (Savings / Checking)',
+    'E-Wallet',
+    'Emergency Fund',
+    'Time Deposit',
+    'Cash on Hand',
+    'High-Yield Savings',
+    'Cash / Checking',
+  ]);
+  const liquidCapital = ledger.accounts
+    .filter((a) => !a.type || liquidAccountTypes.has(a.type))
+    .reduce((sum, a) => sum + (a.balance || 0), 0) || accountsBalanceSum;
+
+  const runwayMonths = avgMonthlyExpense > 0 ? liquidCapital / avgMonthlyExpense : 0;
+  const runwayStatus =
+    runwayMonths >= 6
+      ? { label: 'Strong Cushion', color: 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800' }
+      : runwayMonths >= 3
+      ? { label: 'Healthy (3-6 mo)', color: 'text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border-indigo-200 dark:border-indigo-800' }
+      : runwayMonths >= 1
+      ? { label: 'Building (1-3 mo)', color: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800' }
+      : { label: 'Priority Cushion', color: 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800' };
 
   const startingCapital = ledger.initialCapital || 0;
   const capitalGrowth = currentTotalCapital - startingCapital;
@@ -126,7 +162,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* KPI Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         
         {/* Total Assets / Capital */}
         <div
@@ -149,7 +185,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
             <ArrowUpRight className="w-3.5 h-3.5" />
             <span>+{currencySymbol}{formatNumber(capitalGrowth)} ({capitalGrowthPct.toFixed(1)}%)</span>
-            <span className="text-slate-400 text-[10px]">in ledger</span>
           </div>
         </div>
 
@@ -171,7 +206,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
             <span>
               Avg {currencySymbol}{formatNumber(totalIncome / activeIncomePeriods)}/
-              {frequency === 'monthly' ? 'mo' : 'period'} ({activeIncomePeriods} active)
+              {frequency === 'monthly' ? 'mo' : 'period'}
             </span>
           </div>
         </div>
@@ -215,7 +250,36 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
           </div>
           <div className="mt-2 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-            <span>Flows into separate ledger</span>
+            <span>{savingsRate >= 20 ? 'Target ≥20% Met!' : 'Accumulating to Ledger'}</span>
+          </div>
+        </div>
+
+        {/* Emergency Fund Runway */}
+        <div
+          onClick={onNavigateToSavings}
+          className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs hover:border-emerald-300 dark:hover:border-emerald-700 transition-all cursor-pointer group"
+          title={`Liquid Reserves: ${currencySymbol}${formatNumber(liquidCapital)} / Avg Expense: ${currencySymbol}${formatNumber(avgMonthlyExpense)}`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              Emergency Runway
+            </span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl font-bold font-mono text-slate-900 dark:text-white">
+              {runwayMonths > 0 ? runwayMonths.toFixed(1) : '—'}
+            </span>
+            <span className="text-xs font-semibold text-slate-500">months</span>
+          </div>
+          <div className="mt-2 flex items-center gap-1.5">
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border ${runwayStatus.color}`}
+            >
+              {runwayStatus.label}
+            </span>
           </div>
         </div>
 

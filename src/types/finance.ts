@@ -87,6 +87,7 @@ export interface BudgetItemTemplate {
   frequency?: 'monthly' | 'bi-weekly' | 'both';
   biweeklyPeriod?: 'P1' | 'P2' | 'both';
   defaultPaymentMethod?: PaymentMethod;
+  defaultSavingAccountId?: string;
   toBeWithdrawn?: boolean;
 }
 

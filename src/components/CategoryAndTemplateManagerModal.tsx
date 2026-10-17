@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Tag,
   Plus,
@@ -14,11 +14,18 @@ import {
   Sparkles,
   Banknote,
   FolderTree,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  ChevronUp,
+  ChevronDown,
+  Search,
 } from 'lucide-react';
 import {
   BudgetItemTemplate,
   EntryType,
   PaymentMethod,
+  SavingsAccount,
   YearBudgetData,
 } from '../types/finance';
 import {
@@ -35,6 +42,7 @@ interface CategoryAndTemplateManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
   budget: YearBudgetData;
+  accounts?: SavingsAccount[];
   onUpdateCategories: (
     customCats: {
       expense: string[];
@@ -51,6 +59,7 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
   isOpen,
   onClose,
   budget,
+  accounts = [],
   onUpdateCategories,
   onUpdateTemplates,
   currencySymbol = '₱',
@@ -80,6 +89,7 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
   const [tplFrequency, setTplFrequency] = useState<'monthly' | 'bi-weekly' | 'both'>('monthly');
   const [tplBiweeklyPeriod, setTplBiweeklyPeriod] = useState<'P1' | 'P2' | 'both'>('both');
   const [tplMethod, setTplMethod] = useState<PaymentMethod>('Bank Transfer');
+  const [tplSavingAccountId, setTplSavingAccountId] = useState<string>(accounts[0]?.id || '');
   const [tplWithdraw, setTplWithdraw] = useState<boolean>(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{
     isOpen: boolean;
@@ -94,6 +104,85 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
     affectedItems: [],
     onConfirm: () => {},
   });
+
+  // Template Sorting & Filtering State
+  type TemplateSortField = 'manual' | 'item' | 'type' | 'category' | 'frequency' | 'cost';
+  type SortDirection = 'asc' | 'desc';
+
+  const [sortField, setSortField] = useState<TemplateSortField>('manual');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [templateSearchQuery, setTemplateSearchQuery] = useState('');
+
+  // Move an item up or down in the template list
+  const handleMoveTemplate = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= templates.length) return;
+
+    const updated = [...templates];
+    const [moved] = updated.splice(index, 1);
+    updated.splice(targetIndex, 0, moved);
+
+    setSortField('manual');
+    onUpdateTemplates(updated);
+  };
+
+  // Preset sort and save order
+  const handleApplyPresetSort = (field: TemplateSortField, dir: SortDirection = 'asc') => {
+    const sorted = [...templates].sort((a, b) => {
+      if (field === 'item') {
+        return dir === 'asc' ? a.item.localeCompare(b.item) : b.item.localeCompare(a.item);
+      }
+      if (field === 'category') {
+        const catCmp = a.category.localeCompare(b.category);
+        return dir === 'asc' ? (catCmp !== 0 ? catCmp : a.item.localeCompare(b.item)) : -catCmp;
+      }
+      if (field === 'type') {
+        const typeOrder: Record<string, number> = { income: 1, expense: 2, saving: 3 };
+        const diff = (typeOrder[a.type] || 99) - (typeOrder[b.type] || 99);
+        return dir === 'asc' ? (diff !== 0 ? diff : a.item.localeCompare(b.item)) : -diff;
+      }
+      if (field === 'frequency') {
+        const freqOrder: Record<string, number> = { monthly: 1, 'bi-weekly': 2, both: 3 };
+        const diff = (freqOrder[a.frequency || 'monthly'] || 99) - (freqOrder[b.frequency || 'monthly'] || 99);
+        return dir === 'asc' ? (diff !== 0 ? diff : a.item.localeCompare(b.item)) : -diff;
+      }
+      if (field === 'cost') {
+        const diff = (a.defaultEstimatedCost || 0) - (b.defaultEstimatedCost || 0);
+        return dir === 'asc' ? diff : -diff;
+      }
+      return 0;
+    });
+
+    setSortField(field);
+    setSortDirection(dir);
+    onUpdateTemplates(sorted);
+  };
+
+  const handleToggleColumnSort = (field: TemplateSortField) => {
+    if (sortField === field) {
+      if (sortDirection === 'asc') {
+        handleApplyPresetSort(field, 'desc');
+      } else {
+        setSortField('manual');
+      }
+    } else {
+      handleApplyPresetSort(field, field === 'cost' ? 'desc' : 'asc');
+    }
+  };
+
+  const displayedTemplates = useMemo(() => {
+    let result = [...templates];
+    if (templateSearchQuery.trim()) {
+      const q = templateSearchQuery.toLowerCase().trim();
+      result = result.filter(
+        (t) =>
+          t.item.toLowerCase().includes(q) ||
+          t.category.toLowerCase().includes(q) ||
+          t.type.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [templates, templateSearchQuery]);
 
   if (!isOpen) return null;
 
@@ -163,6 +252,7 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
     setTplFrequency('monthly');
     setTplBiweeklyPeriod('both');
     setTplMethod('Bank Transfer');
+    setTplSavingAccountId(accounts[0]?.id || '');
     setTplWithdraw(false);
     setIsTemplateFormOpen(true);
   };
@@ -176,6 +266,7 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
     setTplFrequency(tpl.frequency || 'monthly');
     setTplBiweeklyPeriod(tpl.biweeklyPeriod || 'both');
     setTplMethod(tpl.defaultPaymentMethod || 'Bank Transfer');
+    setTplSavingAccountId(tpl.defaultSavingAccountId || accounts[0]?.id || '');
     setTplWithdraw(Boolean(tpl.toBeWithdrawn));
     setIsTemplateFormOpen(true);
   };
@@ -198,6 +289,7 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
               frequency: tplFrequency,
               biweeklyPeriod: tplBiweeklyPeriod,
               defaultPaymentMethod: tplMethod,
+              defaultSavingAccountId: tplType === 'saving' ? (tplSavingAccountId || accounts[0]?.id) : undefined,
               toBeWithdrawn: tplWithdraw,
             }
           : t
@@ -212,6 +304,7 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
         frequency: tplFrequency,
         biweeklyPeriod: tplBiweeklyPeriod,
         defaultPaymentMethod: tplMethod,
+        defaultSavingAccountId: tplType === 'saving' ? (tplSavingAccountId || accounts[0]?.id) : undefined,
         toBeWithdrawn: tplWithdraw,
       };
       updatedList.push(newTpl);
@@ -525,78 +618,268 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
                   </div>
                 </div>
               ) : (
-                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto shadow-2xs">
-                  <table className="w-full text-left text-xs min-w-[600px]">
-                    <thead className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-700">
-                      <tr>
-                        <th className="py-2.5 px-4">Line Item</th>
-                        <th className="py-2.5 px-4">Type</th>
-                        <th className="py-2.5 px-4">Category</th>
-                        <th className="py-2.5 px-4">Frequency</th>
-                        <th className="py-2.5 px-4 text-right">Default Estimated Cost</th>
-                        <th className="py-2.5 px-4">Default Payment Channel</th>
-                        <th className="py-2.5 px-3 text-center">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {templates.map((tpl) => (
-                        <tr key={tpl.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                          <td className="py-2.5 px-4 font-semibold text-slate-800 dark:text-slate-200">
-                            {tpl.item}
-                          </td>
-                          <td className="py-2.5 px-4">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                                tpl.type === 'income'
-                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                  : tpl.type === 'saving'
-                                  ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
-                                  : 'bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
-                              }`}
-                            >
-                              {tpl.type === 'saving' ? 'funds' : tpl.type}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-4 text-slate-600 dark:text-slate-400">
-                            {tpl.category}
-                          </td>
-                          <td className="py-2.5 px-4">
-                            <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium text-[10px]">
-                              {tpl.frequency === 'bi-weekly'
-                                ? `Bi-Weekly (${tpl.biweeklyPeriod || 'both'})`
-                                : tpl.frequency === 'both'
-                                ? `Both (${tpl.biweeklyPeriod || 'both'})`
-                                : 'Monthly'}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-4 text-right font-mono font-bold text-slate-900 dark:text-white">
-                            {currencySymbol}{formatNumber(tpl.defaultEstimatedCost)}
-                          </td>
-                          <td className="py-2.5 px-4 text-slate-600 dark:text-slate-300">
-                            {tpl.defaultPaymentMethod || 'Bank Transfer'}
-                          </td>
-                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                onClick={() => handleOpenEditTemplate(tpl)}
-                                className="p-1 text-slate-400 hover:text-indigo-600 rounded cursor-pointer"
-                                title="Edit template item"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteTemplate(tpl.id)}
-                                className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
-                                title="Delete template item"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                <div className="space-y-3">
+                  {/* Sorting & Filter Controls Toolbar */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-700/70">
+                    <div className="relative flex-1 max-w-xs">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search items or categories..."
+                        value={templateSearchQuery}
+                        onChange={(e) => setTemplateSearchQuery(e.target.value)}
+                        className="w-full pl-8 pr-7 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                      {templateSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setTemplateSearchQuery('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span className="text-slate-400 font-semibold mr-1 hidden md:inline">Sort:</span>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyPresetSort('type', 'asc')}
+                        className={`px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          sortField === 'type'
+                            ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border-indigo-300 dark:border-indigo-700 font-bold'
+                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                        title="Group by Type: Income first, then Expenses, then Funds"
+                      >
+                        Type
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyPresetSort('category', 'asc')}
+                        className={`px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          sortField === 'category'
+                            ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border-indigo-300 dark:border-indigo-700 font-bold'
+                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                        title="Sort alphabetically by category"
+                      >
+                        Category (A-Z)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyPresetSort('item', 'asc')}
+                        className={`px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          sortField === 'item'
+                            ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border-indigo-300 dark:border-indigo-700 font-bold'
+                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                        title="Sort alphabetically by item name"
+                      >
+                        Name (A-Z)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyPresetSort('cost', 'desc')}
+                        className={`px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          sortField === 'cost'
+                            ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border-indigo-300 dark:border-indigo-700 font-bold'
+                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                        title="Sort by highest estimated cost first"
+                      >
+                        Cost (High&rarr;Low)
+                      </button>
+                      {sortField !== 'manual' && (
+                        <button
+                          type="button"
+                          onClick={() => setSortField('manual')}
+                          className="px-2 py-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] underline cursor-pointer"
+                        >
+                          Manual Order
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto shadow-2xs">
+                    <table className="w-full text-left text-xs min-w-[680px]">
+                      <thead className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-700 select-none">
+                        <tr>
+                          <th className="py-2.5 px-3 text-center w-16">
+                            <span title="Order in budget grid"># Order</span>
+                          </th>
+                          <th
+                            onClick={() => handleToggleColumnSort('item')}
+                            className="py-2.5 px-4 cursor-pointer hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Line Item</span>
+                              {sortField === 'item' ? (
+                                sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                              ) : (
+                                <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                              )}
                             </div>
-                          </td>
+                          </th>
+                          <th
+                            onClick={() => handleToggleColumnSort('type')}
+                            className="py-2.5 px-4 cursor-pointer hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Type</span>
+                              {sortField === 'type' ? (
+                                sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                              ) : (
+                                <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                              )}
+                            </div>
+                          </th>
+                          <th
+                            onClick={() => handleToggleColumnSort('category')}
+                            className="py-2.5 px-4 cursor-pointer hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Category</span>
+                              {sortField === 'category' ? (
+                                sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                              ) : (
+                                <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                              )}
+                            </div>
+                          </th>
+                          <th
+                            onClick={() => handleToggleColumnSort('frequency')}
+                            className="py-2.5 px-4 cursor-pointer hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Frequency</span>
+                              {sortField === 'frequency' ? (
+                                sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                              ) : (
+                                <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                              )}
+                            </div>
+                          </th>
+                          <th
+                            onClick={() => handleToggleColumnSort('cost')}
+                            className="py-2.5 px-4 text-right cursor-pointer hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors"
+                          >
+                            <div className="flex items-center justify-end gap-1.5">
+                              <span>Estimated Cost</span>
+                              {sortField === 'cost' ? (
+                                sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                              ) : (
+                                <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                              )}
+                            </div>
+                          </th>
+                          <th className="py-2.5 px-4">Default Payment Channel</th>
+                          <th className="py-2.5 px-3 text-center">Action</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {displayedTemplates.map((tpl) => {
+                          const originalIndex = templates.findIndex((t) => t.id === tpl.id);
+                          return (
+                            <tr key={tpl.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                              {/* Order & Reordering Arrows */}
+                              <td className="py-2 px-2 text-center whitespace-nowrap">
+                                <div className="flex items-center justify-center gap-1">
+                                  <span className="font-mono text-[10px] text-slate-400 w-4 text-right">
+                                    {originalIndex + 1}
+                                  </span>
+                                  <div className="flex flex-col">
+                                    <button
+                                      type="button"
+                                      disabled={originalIndex <= 0}
+                                      onClick={() => handleMoveTemplate(originalIndex, 'up')}
+                                      className="p-0.5 text-slate-400 hover:text-indigo-600 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed transition-colors"
+                                      title="Move up in order"
+                                    >
+                                      <ChevronUp className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={originalIndex >= templates.length - 1}
+                                      onClick={() => handleMoveTemplate(originalIndex, 'down')}
+                                      className="p-0.5 text-slate-400 hover:text-indigo-600 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed transition-colors"
+                                      title="Move down in order"
+                                    >
+                                      <ChevronDown className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="py-2.5 px-4 font-semibold text-slate-800 dark:text-slate-200">
+                                {tpl.item}
+                              </td>
+                              <td className="py-2.5 px-4">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                    tpl.type === 'income'
+                                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                                      : tpl.type === 'saving'
+                                      ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                                      : 'bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+                                  }`}
+                                >
+                                  {tpl.type === 'saving' ? 'funds' : tpl.type}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-4 text-slate-600 dark:text-slate-400">
+                                {tpl.category}
+                              </td>
+                              <td className="py-2.5 px-4">
+                                <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium text-[10px]">
+                                  {tpl.frequency === 'bi-weekly'
+                                    ? `Bi-Weekly (${tpl.biweeklyPeriod || 'both'})`
+                                    : tpl.frequency === 'both'
+                                    ? `Both (${tpl.biweeklyPeriod || 'both'})`
+                                    : 'Monthly'}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono font-bold text-slate-900 dark:text-white">
+                                {currencySymbol}{formatNumber(tpl.defaultEstimatedCost)}
+                              </td>
+                              <td className="py-2.5 px-4 text-slate-600 dark:text-slate-300">
+                                {tpl.type === 'saving' ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                    <PiggyBank className="w-3.5 h-3.5" />
+                                    <span>
+                                      {accounts?.find((a) => a.id === tpl.defaultSavingAccountId)?.name || 'Default Account'}
+                                    </span>
+                                  </span>
+                                ) : (
+                                  tpl.defaultPaymentMethod || 'Bank Transfer'
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    onClick={() => handleOpenEditTemplate(tpl)}
+                                    className="p-1 text-slate-400 hover:text-indigo-600 rounded cursor-pointer"
+                                    title="Edit template item"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteTemplate(tpl.id)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
+                                    title="Delete template item"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>
@@ -905,22 +1188,41 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-600 font-semibold mb-1">
-                  Default Payment Channel
-                </label>
-                <select
-                  value={tplMethod}
-                  onChange={(e) => setTplMethod(e.target.value as PaymentMethod)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                >
-                  {PAYMENT_METHODS.map((pm) => (
-                    <option key={pm} value={pm}>
-                      {pm}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {tplType === 'saving' ? (
+                <div>
+                  <label className="block text-slate-600 font-semibold mb-1">
+                    Destination Fund Account
+                  </label>
+                  <select
+                    value={tplSavingAccountId}
+                    onChange={(e) => setTplSavingAccountId(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                  >
+                    {accounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name} ({acc.type})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-slate-600 font-semibold mb-1">
+                    Default Payment Channel
+                  </label>
+                  <select
+                    value={tplMethod}
+                    onChange={(e) => setTplMethod(e.target.value as PaymentMethod)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                  >
+                    {PAYMENT_METHODS.map((pm) => (
+                      <option key={pm} value={pm}>
+                        {pm}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {tplType === 'expense' && (
                 <div className="flex items-center gap-2 pt-1">

@@ -106,7 +106,7 @@ export class FinanceStorageService {
    */
   static loadLocalTemplateData(fallbackBudget?: YearBudgetData): BudgetTemplateData {
     const saved = FinanceStorageService.loadUserTemplateProfile();
-    if (saved && saved.itemTemplates.length > 0) {
+    if (saved) {
       return {
         version: saved.version || '1.0.0',
         lastUpdated: saved.lastUpdated || fallbackBudget?.lastUpdated || new Date().toISOString(),

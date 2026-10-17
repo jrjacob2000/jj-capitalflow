@@ -28,6 +28,7 @@ import {
   YearBudgetData,
   SavingsLedgerData,
   BudgetTemplateData,
+  APP_VERSION,
 } from '../types/finance';
 import {
   getBudgetFileName,
@@ -127,6 +128,19 @@ export const DriveFilesManagerView: React.FC<DriveFilesManagerViewProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadFullBackup = () => {
+    const fullBackup = {
+      backupVersion: '1.0',
+      exportedAt: new Date().toISOString(),
+      appVersion: APP_VERSION,
+      budget,
+      templateData,
+      ledger,
+    };
+    const dateStr = new Date().toISOString().split('T')[0];
+    handleDownload(fullBackup, `capitalflow_full_backup_${budget.year}_${dateStr}.json`);
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -135,14 +149,22 @@ export const DriveFilesManagerView: React.FC<DriveFilesManagerViewProps> = ({
     reader.onload = (event) => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
-        if (parsed.year && Array.isArray(parsed.entries)) {
+        if (parsed.backupVersion && parsed.budget && parsed.ledger) {
+          onImportBudgetJson(parsed.budget);
+          if (parsed.templateData && onImportTemplateJson) {
+            onImportTemplateJson(parsed.templateData);
+          }
+          if (parsed.ledger && onImportLedgerJson) {
+            onImportLedgerJson(parsed.ledger);
+          }
+        } else if (parsed.year && Array.isArray(parsed.entries)) {
           onImportBudgetJson(parsed as YearBudgetData);
         } else if (Array.isArray(parsed.itemTemplates) && parsed.customCategories && onImportTemplateJson) {
           onImportTemplateJson(parsed as BudgetTemplateData);
         } else if (Array.isArray(parsed.accounts) && Array.isArray(parsed.transactions) && onImportLedgerJson) {
           onImportLedgerJson(parsed as SavingsLedgerData);
         } else {
-          onError?.('Invalid format. File must be a CapitalFlow Budget, Estimate Template, or Funds Ledger JSON.');
+          onError?.('Invalid format. File must be a CapitalFlow Full Backup, Annual Budget, Estimate Template, or Funds Ledger JSON.');
         }
       } catch {
         onError?.('Failed to parse JSON file. Please verify the file is valid JSON.');
@@ -634,6 +656,15 @@ export const DriveFilesManagerView: React.FC<DriveFilesManagerViewProps> = ({
 
           <div className="flex flex-wrap items-center gap-2">
             <button
+              onClick={handleDownloadFullBackup}
+              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 font-semibold text-xs rounded-xl border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Download complete offline backup bundle (Budget, Template, and Funds Ledger in one JSON file)"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Full Backup (.json)</span>
+            </button>
+
+            <button
               onClick={onAddNewYear}
               className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 dark:hover:bg-indigo-900 text-indigo-600 dark:text-indigo-400 font-semibold text-xs rounded-xl border border-indigo-200 dark:border-indigo-800 flex items-center gap-1.5 transition-colors cursor-pointer"
             >
@@ -641,7 +672,7 @@ export const DriveFilesManagerView: React.FC<DriveFilesManagerViewProps> = ({
               <span>Initialize New Year</span>
             </button>
 
-            <label className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium text-xs rounded-xl border border-slate-200 dark:border-slate-700 flex items-center gap-1.5 cursor-pointer transition-colors">
+            <label className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium text-xs rounded-xl border border-slate-200 dark:border-slate-700 flex items-center gap-1.5 cursor-pointer transition-colors" title="Import Budget, Template, Ledger, or Full Backup JSON">
               <Upload className="w-3.5 h-3.5" />
               <span>Import JSON</span>
               <input

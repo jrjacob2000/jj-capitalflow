@@ -1516,6 +1516,7 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
         isOpen={isManagerModalOpen}
         onClose={() => setIsManagerModalOpen(false)}
         budget={budget}
+        accounts={accounts}
         onUpdateCategories={onUpdateCategories}
         onUpdateTemplates={onUpdateTemplates}
         currencySymbol={currencySymbol}
