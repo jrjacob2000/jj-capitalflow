@@ -1124,7 +1124,7 @@ export default function App() {
       entries: updatedEntries,
       itemTemplates: updatedTemplates,
       customCategories: customCats,
-      isPersonalizedTemplate: true,
+      isPersonalizedTemplate: Boolean(updatedTemplates && updatedTemplates.length > 0),
       lastUpdated: new Date().toISOString(),
     };
     setBudget(updatedBudget);
@@ -1143,14 +1143,18 @@ export default function App() {
     const updatedBudget: YearBudgetData = {
       ...budget,
       itemTemplates: templates,
-      isPersonalizedTemplate: true,
+      isPersonalizedTemplate: templates.length > 0,
       lastUpdated: new Date().toISOString(),
     };
     setBudget(updatedBudget);
     FinanceStorageService.saveLocalBudget(updatedBudget);
     setTemplateData(FinanceStorageService.loadLocalTemplateData(updatedBudget));
     setHasUnsavedChanges(true);
-    showToast('Personalized estimated budget template saved (Sync to Drive to back up)');
+    showToast(
+      templates.length > 0
+        ? 'Personalized estimated budget template saved (Sync to Drive to back up)'
+        : 'Started from a blank template'
+    );
   };
 
   // Add multiple entries (e.g. pre-populate period from estimated budgets)
@@ -1182,20 +1186,20 @@ export default function App() {
     showToast(`Added ${newEntries.length} items with estimated amounts to period`);
   };
 
-  // Reset all data for live production
+  // Reset / delete all local data for live production
   const handleResetDataForGoLive = () => {
     setConfirmationModal({
       isOpen: true,
-      title: 'Reset All Data for Go Live?',
-      description: 'This will wipe all test budget records and savings transactions, setting all balances to ₱0 in preparation for live production. Categories, payment methods, and item templates will be preserved.',
+      title: 'Delete All Local Data?',
+      description:
+        'This will permanently delete all local data stored on this browser/device — including all recorded budget entries across all years, your local Estimate Budget Template & custom categories, and all local Funds ledger transactions and balances.',
       affectedItems: [
-        'All recorded budget entries across all years (cleared to empty)',
-        'All savings ledger transactions (cleared to empty)',
-        'All savings account balances (reset to ₱0)',
-        'Initial capital (reset to ₱0)',
-        'Local storage cache (reset to clean production state)',
+        'All local recorded budget entries across all years (deleted)',
+        'Local Estimate Budget Template & custom categories (deleted)',
+        'All local savings ledger transactions & account balances (reset to ₱0)',
+        'All local browser storage cache for CapitalFlow (cleared)',
       ],
-      confirmLabel: 'Yes, Clean All Data',
+      confirmLabel: 'Yes, Delete All Local Data',
       isDestructive: true,
       onConfirm: async () => {
         const { budget: cleanBudget, ledger: cleanLedger } = FinanceStorageService.resetAllDataForGoLive();
@@ -1204,8 +1208,9 @@ export default function App() {
         setTemplateData(FinanceStorageService.loadLocalTemplateData(cleanBudget));
         setCurrentYear(2026);
         setAvailableYears([2026]);
+        setHasUnsavedChanges(false);
         setConfirmationModal((m) => ({ ...m, isOpen: false }));
-        showToast('All data has been cleaned and reset for Go Live!', 'success');
+        showToast('All local data has been deleted and reset!', 'success');
       },
     });
   };

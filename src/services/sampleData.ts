@@ -328,22 +328,30 @@ export const DEFAULT_ITEM_TEMPLATES: BudgetItemTemplate[] = [
   },
 ];
 
-const LEGACY_HARDCODED_TEMPLATE_IDS = new Set([
-  'tpl-odiongan',
-  'tpl-kath',
-  'tpl-zack',
-  'tpl-thites',
-  'tpl-prulife',
-  'tpl-dine',
-  'tpl-gasul',
-]);
+const DEFAULT_TEMPLATE_IDS = new Set(DEFAULT_ITEM_TEMPLATES.map((t) => t.id));
 
 /**
- * Checks if a template list is the old hardcoded personal demo list
+ * Checks if a template item belongs to the default starter helper template
+ */
+export function isDefaultStarterTemplateItem(tpl?: BudgetItemTemplate): boolean {
+  if (!tpl || !tpl.id) return false;
+  return tpl.id.startsWith('tpl-default-') || DEFAULT_TEMPLATE_IDS.has(tpl.id);
+}
+
+/**
+ * Strips out any default starter template items so they never mix with personalized templates or show on the grid
+ */
+export function stripDefaultStarterTemplates(templates?: BudgetItemTemplate[]): BudgetItemTemplate[] {
+  if (!Array.isArray(templates)) return [];
+  return templates.filter((t) => !isDefaultStarterTemplateItem(t));
+}
+
+/**
+ * Checks if a template list only contains default starter items
  */
 export function isLegacyHardcodedTemplate(templates?: BudgetItemTemplate[]): boolean {
   if (!templates || templates.length === 0) return false;
-  return templates.some((t) => LEGACY_HARDCODED_TEMPLATE_IDS.has(t.id));
+  return templates.every((t) => isDefaultStarterTemplateItem(t));
 }
 
 /**
@@ -351,7 +359,7 @@ export function isLegacyHardcodedTemplate(templates?: BudgetItemTemplate[]): boo
  */
 export function deriveCategoryBudgetsFromTemplates(templates: BudgetItemTemplate[]) {
   const map = new Map<string, { category: string; type: 'income' | 'expense' | 'saving'; plannedAmount: number }>();
-  templates.forEach((tpl) => {
+  stripDefaultStarterTemplates(templates).forEach((tpl) => {
     const key = `${tpl.type}:${tpl.category}`;
     const existing = map.get(key);
     const amount = tpl.defaultEstimatedCost || 0;
@@ -376,23 +384,21 @@ export function createEmptyYearBudget(
     isPersonalizedTemplate?: boolean;
   }
 ): YearBudgetData {
-  const activeTemplates =
-    userProfile?.itemTemplates && !isLegacyHardcodedTemplate(userProfile.itemTemplates)
-      ? userProfile.itemTemplates.map((t) => ({ ...t }))
-      : DEFAULT_ITEM_TEMPLATES.map((t) => ({ ...t }));
+  const cleanedUserTemplates = stripDefaultStarterTemplates(userProfile?.itemTemplates).map((t) => ({ ...t }));
+  const hasPersonalized = Boolean(userProfile?.isPersonalizedTemplate && cleanedUserTemplates.length > 0);
+  const activeTemplates = hasPersonalized ? cleanedUserTemplates : [];
 
-  const activeCategories =
-    userProfile?.customCategories && !isLegacyHardcodedTemplate(userProfile.itemTemplates)
-      ? {
-          expense: [...userProfile.customCategories.expense],
-          income: [...userProfile.customCategories.income],
-          saving: [...userProfile.customCategories.saving],
-        }
-      : {
-          expense: [...EXPENSE_CATEGORIES],
-          income: [...INCOME_CATEGORIES],
-          saving: [...SAVING_CATEGORIES],
-        };
+  const activeCategories = userProfile?.customCategories
+    ? {
+        expense: [...userProfile.customCategories.expense],
+        income: [...userProfile.customCategories.income],
+        saving: [...userProfile.customCategories.saving],
+      }
+    : {
+        expense: [...EXPENSE_CATEGORIES],
+        income: [...INCOME_CATEGORIES],
+        saving: [...SAVING_CATEGORIES],
+      };
 
   return {
     year,
@@ -403,7 +409,7 @@ export function createEmptyYearBudget(
     entries: [],
     customCategories: activeCategories,
     itemTemplates: activeTemplates,
-    isPersonalizedTemplate: Boolean(userProfile?.isPersonalizedTemplate),
+    isPersonalizedTemplate: hasPersonalized,
     budgets: deriveCategoryBudgetsFromTemplates(activeTemplates),
   };
 }

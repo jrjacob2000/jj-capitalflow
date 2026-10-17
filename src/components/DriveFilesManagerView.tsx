@@ -757,24 +757,24 @@ export const DriveFilesManagerView: React.FC<DriveFilesManagerViewProps> = ({
         </div>
       </div>
 
-      {/* Production Go-Live & Clean Slate Tools */}
+      {/* Reset Local Device Data */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3 min-w-0">
-            <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 shrink-0">
-              <Sparkles className="w-5 h-5" />
+            <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 shrink-0">
+              <Trash2 className="w-5 h-5" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Go Live Database Preparation
+                  Reset Local Device Data
                 </h3>
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
-                  Ready for Production
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800 shrink-0">
+                  Local Storage Reset
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-2xl leading-relaxed">
-                All test/mock budget records and sample transactions are cleaned. Your personalized Estimate Budget Template ({BUDGET_TEMPLATE_FILE_NAME}), categories, and savings accounts are preserved with ₱0 balances ready for real records.
+                Delete all local data stored in this browser — including all annual budget records, your local Estimate Budget Template, custom categories, and local Funds ledger transactions — to start from a completely blank local state or pull fresh copies from Google Drive.
               </p>
             </div>
           </div>
@@ -782,10 +782,10 @@ export const DriveFilesManagerView: React.FC<DriveFilesManagerViewProps> = ({
           {onResetDataForGoLive && (
             <button
               onClick={onResetDataForGoLive}
-              className="w-full sm:w-auto justify-center px-4 py-2.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 dark:bg-slate-800 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 transition-colors flex items-center gap-2 shrink-0 cursor-pointer"
+              className="w-full sm:w-auto justify-center px-4 py-2.5 bg-rose-50 hover:bg-rose-600 hover:text-white dark:bg-rose-950/50 dark:hover:bg-rose-600 text-rose-700 dark:text-rose-300 text-xs font-semibold rounded-xl border border-rose-200 dark:border-rose-800 transition-colors flex items-center gap-2 shrink-0 cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>Clean All Data for Go Live</span>
+              <span>Delete All Local Data</span>
             </button>
           )}
         </div>

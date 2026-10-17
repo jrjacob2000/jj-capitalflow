@@ -23,11 +23,11 @@ import {
   generateInitial2026Budget,
   generateInitialSavingsLedger,
   createEmptyYearBudget,
-  DEFAULT_ITEM_TEMPLATES,
   EXPENSE_CATEGORIES,
   INCOME_CATEGORIES,
   SAVING_CATEGORIES,
-  isLegacyHardcodedTemplate,
+  isDefaultStarterTemplateItem,
+  stripDefaultStarterTemplates,
   deriveCategoryBudgetsFromTemplates,
 } from './sampleData';
 
@@ -58,8 +58,18 @@ export class FinanceStorageService {
       const raw = localStorage.getItem(LOCAL_STORAGE_KEY_USER_TEMPLATE);
       if (!raw) return null;
       const parsed = JSON.parse(raw) as UserTemplateProfile;
-      if (parsed && Array.isArray(parsed.itemTemplates) && !isLegacyHardcodedTemplate(parsed.itemTemplates)) {
-        return parsed;
+      if (parsed && Array.isArray(parsed.itemTemplates)) {
+        const cleanedTemplates = stripDefaultStarterTemplates(parsed.itemTemplates);
+        const hadDefaultItems = cleanedTemplates.length !== parsed.itemTemplates.length;
+        const normalizedProfile: UserTemplateProfile = {
+          ...parsed,
+          itemTemplates: cleanedTemplates,
+          isPersonalizedTemplate: Boolean(parsed.isPersonalizedTemplate && cleanedTemplates.length > 0),
+        };
+        if (hadDefaultItems) {
+          localStorage.setItem(LOCAL_STORAGE_KEY_USER_TEMPLATE, JSON.stringify(normalizedProfile));
+        }
+        return normalizedProfile;
       }
     } catch (e) {
       console.warn('Could not load user template profile:', e);
@@ -71,16 +81,17 @@ export class FinanceStorageService {
    * Saves the user's personalized template profile to localStorage
    */
   static saveUserTemplateProfile(profile: UserTemplateProfile): BudgetTemplateData {
+    const cleanedTemplates = stripDefaultStarterTemplates(profile.itemTemplates).map((t) => ({ ...t }));
     const fullData: BudgetTemplateData = {
       version: profile.version || '1.0.0',
       lastUpdated: profile.lastUpdated || new Date().toISOString(),
-      isPersonalizedTemplate: profile.isPersonalizedTemplate,
+      isPersonalizedTemplate: Boolean(profile.isPersonalizedTemplate && cleanedTemplates.length > 0),
       customCategories: {
         expense: [...(profile.customCategories?.expense || EXPENSE_CATEGORIES)],
         income: [...(profile.customCategories?.income || INCOME_CATEGORIES)],
         saving: [...(profile.customCategories?.saving || SAVING_CATEGORIES)],
       },
-      itemTemplates: (profile.itemTemplates || DEFAULT_ITEM_TEMPLATES).map((t) => ({ ...t })),
+      itemTemplates: cleanedTemplates,
     };
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY_USER_TEMPLATE, JSON.stringify(fullData));
@@ -95,11 +106,11 @@ export class FinanceStorageService {
    */
   static loadLocalTemplateData(fallbackBudget?: YearBudgetData): BudgetTemplateData {
     const saved = FinanceStorageService.loadUserTemplateProfile();
-    if (saved) {
+    if (saved && saved.itemTemplates.length > 0) {
       return {
         version: saved.version || '1.0.0',
         lastUpdated: saved.lastUpdated || fallbackBudget?.lastUpdated || new Date().toISOString(),
-        isPersonalizedTemplate: Boolean(saved.isPersonalizedTemplate),
+        isPersonalizedTemplate: Boolean(saved.isPersonalizedTemplate && saved.itemTemplates.length > 0),
         customCategories: {
           expense: [...(saved.customCategories?.expense || EXPENSE_CATEGORIES)],
           income: [...(saved.customCategories?.income || INCOME_CATEGORIES)],
@@ -110,16 +121,17 @@ export class FinanceStorageService {
     }
 
     if (fallbackBudget && Array.isArray(fallbackBudget.itemTemplates) && fallbackBudget.customCategories) {
+      const cleanedFallback = stripDefaultStarterTemplates(fallbackBudget.itemTemplates).map((t) => ({ ...t }));
       return {
         version: '1.0.0',
         lastUpdated: fallbackBudget.lastUpdated || new Date().toISOString(),
-        isPersonalizedTemplate: Boolean(fallbackBudget.isPersonalizedTemplate),
+        isPersonalizedTemplate: Boolean(fallbackBudget.isPersonalizedTemplate && cleanedFallback.length > 0),
         customCategories: {
           expense: [...fallbackBudget.customCategories.expense],
           income: [...fallbackBudget.customCategories.income],
           saving: [...fallbackBudget.customCategories.saving],
         },
-        itemTemplates: fallbackBudget.itemTemplates.map((t) => ({ ...t })),
+        itemTemplates: cleanedFallback,
       };
     }
 
@@ -132,7 +144,7 @@ export class FinanceStorageService {
         income: [...INCOME_CATEGORIES],
         saving: [...SAVING_CATEGORIES],
       },
-      itemTemplates: DEFAULT_ITEM_TEMPLATES.map((t) => ({ ...t })),
+      itemTemplates: [],
     };
   }
 
@@ -163,23 +175,24 @@ export class FinanceStorageService {
       }
     });
 
-    const normalizedTemplates = (templateData.itemTemplates || DEFAULT_ITEM_TEMPLATES).map((t) => ({
+    const normalizedTemplates = stripDefaultStarterTemplates(templateData.itemTemplates).map((t) => ({
       ...t,
     }));
+    const hasPersonalized = Boolean((templateData.isPersonalizedTemplate ?? true) && normalizedTemplates.length > 0);
 
     FinanceStorageService.saveUserTemplateProfile({
       version: templateData.version || '1.0.0',
       lastUpdated: templateData.lastUpdated || new Date().toISOString(),
       customCategories: normalizedCategories,
       itemTemplates: normalizedTemplates,
-      isPersonalizedTemplate: Boolean(templateData.isPersonalizedTemplate ?? true),
+      isPersonalizedTemplate: hasPersonalized,
     });
 
     const updatedBudget: YearBudgetData = {
       ...currentBudget,
       customCategories: normalizedCategories,
       itemTemplates: normalizedTemplates,
-      isPersonalizedTemplate: Boolean(templateData.isPersonalizedTemplate ?? true),
+      isPersonalizedTemplate: hasPersonalized,
       budgets: deriveCategoryBudgetsFromTemplates(normalizedTemplates),
       lastUpdated: new Date().toISOString(),
     };
@@ -189,24 +202,35 @@ export class FinanceStorageService {
   }
 
   /**
-   * Ensures a YearBudgetData object has valid personalized or default starter templates & categories,
-   * and migrates away from any legacy hardcoded demo templates while preserving categories used in entries.
+   * Ensures a YearBudgetData object only contains the user's personalized templates & categories,
+   * stripping out any default starter templates so they never mix on the grid.
    */
   static normalizeBudgetTemplates(budget: YearBudgetData): { budget: YearBudgetData; didMigrate: boolean } {
     let didMigrate = false;
     const savedProfile = FinanceStorageService.loadUserTemplateProfile();
 
-    const hasLegacyTemplates =
-      !budget.isPersonalizedTemplate && isLegacyHardcodedTemplate(budget.itemTemplates);
+    const hadDefaultItems =
+      Array.isArray(budget.itemTemplates) && budget.itemTemplates.some((t) => isDefaultStarterTemplateItem(t));
     const hasMissingTemplates = !Array.isArray(budget.itemTemplates);
 
-    if (hasLegacyTemplates || hasMissingTemplates) {
-      didMigrate = true;
-      const baseTemplates = savedProfile
-        ? savedProfile.itemTemplates.map((t) => ({ ...t }))
-        : DEFAULT_ITEM_TEMPLATES.map((t) => ({ ...t }));
+    const cleanedBudgetTemplates = stripDefaultStarterTemplates(budget.itemTemplates);
 
-      const baseCategories = savedProfile
+    if (hadDefaultItems || hasMissingTemplates) {
+      didMigrate = true;
+      const baseTemplates =
+        cleanedBudgetTemplates.length > 0
+          ? cleanedBudgetTemplates.map((t) => ({ ...t }))
+          : savedProfile && savedProfile.itemTemplates.length > 0
+          ? savedProfile.itemTemplates.map((t) => ({ ...t }))
+          : [];
+
+      const baseCategories = budget.customCategories
+        ? {
+            expense: [...budget.customCategories.expense],
+            income: [...budget.customCategories.income],
+            saving: [...budget.customCategories.saving],
+          }
+        : savedProfile?.customCategories
         ? {
             expense: [...savedProfile.customCategories.expense],
             income: [...savedProfile.customCategories.income],
@@ -234,7 +258,7 @@ export class FinanceStorageService {
 
       budget.itemTemplates = baseTemplates;
       budget.customCategories = baseCategories;
-      budget.isPersonalizedTemplate = Boolean(savedProfile?.isPersonalizedTemplate);
+      budget.isPersonalizedTemplate = Boolean(baseTemplates.length > 0);
     } else if (!budget.customCategories) {
       didMigrate = true;
       budget.customCategories = {
@@ -242,6 +266,11 @@ export class FinanceStorageService {
         income: [...INCOME_CATEGORIES],
         saving: [...SAVING_CATEGORIES],
       };
+    }
+
+    if (Array.isArray(budget.itemTemplates) && budget.itemTemplates.length === 0 && budget.isPersonalizedTemplate) {
+      budget.isPersonalizedTemplate = false;
+      didMigrate = true;
     }
 
     budget.budgets = deriveCategoryBudgetsFromTemplates(budget.itemTemplates || []);
@@ -262,25 +291,28 @@ export class FinanceStorageService {
   }
 
   /**
-   * Complete reset: wipes all test/sample records, transactions, and balances
-   * to provide a pristine database state ready for live production, while preserving
-   * the user's personalized categories and estimated budget templates (or initializing default starter template).
+   * Complete reset: deletes all local data stored in localStorage (all annual budgets,
+   * personalized estimate budget templates, custom categories, and savings ledger records)
+   * to provide a completely clean local state.
    */
   static resetAllDataForGoLive(): { budget: YearBudgetData; ledger: SavingsLedgerData } {
-    const savedProfile = FinanceStorageService.loadUserTemplateProfile();
     try {
-      // Clean all local budget entries and caches
-      const years = FinanceStorageService.getKnownYears();
-      years.forEach((y) => {
-        localStorage.removeItem(`${LOCAL_STORAGE_KEY_PREFIX}${y}`);
-      });
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('capitalflow_')) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((key) => localStorage.removeItem(key));
+      localStorage.removeItem(LOCAL_STORAGE_KEY_USER_TEMPLATE);
       localStorage.removeItem(LOCAL_STORAGE_KEY_LEDGER);
       localStorage.removeItem(LOCAL_STORAGE_KEY_YEARS);
     } catch (e) {
       console.warn('Error clearing localStorage during reset:', e);
     }
 
-    const cleanBudget = createEmptyYearBudget(2026, savedProfile || undefined);
+    const cleanBudget = createEmptyYearBudget(2026);
     FinanceStorageService.saveLocalBudget(cleanBudget);
 
     const cleanLedger = generateInitialSavingsLedger(cleanBudget);
@@ -322,12 +354,12 @@ export class FinanceStorageService {
   static saveLocalBudget(budget: YearBudgetData): void {
     budget.lastUpdated = new Date().toISOString();
     budget.budgets = deriveCategoryBudgetsFromTemplates(budget.itemTemplates || []);
-    if (budget.isPersonalizedTemplate && budget.customCategories && Array.isArray(budget.itemTemplates)) {
+    if (budget.customCategories && Array.isArray(budget.itemTemplates)) {
       FinanceStorageService.saveUserTemplateProfile({
         lastUpdated: budget.lastUpdated,
         customCategories: budget.customCategories,
         itemTemplates: budget.itemTemplates,
-        isPersonalizedTemplate: true,
+        isPersonalizedTemplate: Boolean(budget.isPersonalizedTemplate && budget.itemTemplates.length > 0),
       });
     }
     localStorage.setItem(`${LOCAL_STORAGE_KEY_PREFIX}${budget.year}`, JSON.stringify(budget));
@@ -511,13 +543,13 @@ export class FinanceStorageService {
     if (!result) return null;
     if (
       Array.isArray(result.budget.itemTemplates) &&
-      !isLegacyHardcodedTemplate(result.budget.itemTemplates) &&
       result.budget.customCategories
     ) {
+      const cleaned = stripDefaultStarterTemplates(result.budget.itemTemplates);
       FinanceStorageService.saveUserTemplateProfile({
         customCategories: result.budget.customCategories,
-        itemTemplates: result.budget.itemTemplates,
-        isPersonalizedTemplate: Boolean(result.budget.isPersonalizedTemplate ?? true),
+        itemTemplates: cleaned,
+        isPersonalizedTemplate: Boolean((result.budget.isPersonalizedTemplate ?? true) && cleaned.length > 0),
       });
     }
     FinanceStorageService.saveLocalBudget(result.budget);
@@ -569,8 +601,11 @@ export class FinanceStorageService {
     templateData: BudgetTemplateData,
     fileId?: string | null
   ): Promise<{ fileId: string; modifiedTime: string; folderId: string }> {
+    const cleanedTemplates = stripDefaultStarterTemplates(templateData.itemTemplates);
     const payload: BudgetTemplateData = {
       ...templateData,
+      itemTemplates: cleanedTemplates,
+      isPersonalizedTemplate: Boolean(templateData.isPersonalizedTemplate && cleanedTemplates.length > 0),
       version: templateData.version || '1.0.0',
       lastUpdated: templateData.lastUpdated || new Date().toISOString(),
     };
@@ -588,10 +623,11 @@ export class FinanceStorageService {
     if (!file) return null;
 
     const raw = await downloadJsonFile<BudgetTemplateData>(accessToken, file.id);
+    const cleanedTemplates = stripDefaultStarterTemplates(raw.itemTemplates);
     const normalized: BudgetTemplateData = {
       version: raw.version || '1.0.0',
       lastUpdated: raw.lastUpdated || file.modifiedTime || new Date().toISOString(),
-      isPersonalizedTemplate: Boolean(raw.isPersonalizedTemplate ?? true),
+      isPersonalizedTemplate: Boolean((raw.isPersonalizedTemplate ?? true) && cleanedTemplates.length > 0),
       customCategories: {
         expense: Array.isArray(raw.customCategories?.expense)
           ? raw.customCategories.expense
@@ -603,10 +639,7 @@ export class FinanceStorageService {
           ? raw.customCategories.saving
           : [...SAVING_CATEGORIES],
       },
-      itemTemplates:
-        Array.isArray(raw.itemTemplates) && !isLegacyHardcodedTemplate(raw.itemTemplates)
-          ? raw.itemTemplates
-          : DEFAULT_ITEM_TEMPLATES.map((t) => ({ ...t })),
+      itemTemplates: cleanedTemplates,
     };
 
     return { template: normalized, file };

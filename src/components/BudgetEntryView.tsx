@@ -36,7 +36,7 @@ import {
   EXPENSE_CATEGORIES,
   INCOME_CATEGORIES,
   SAVING_CATEGORIES,
-  DEFAULT_ITEM_TEMPLATES,
+  stripDefaultStarterTemplates,
   isTemplateValidForPeriod,
 } from '../services/sampleData';
 
@@ -171,9 +171,9 @@ export const BudgetEntryView: React.FC<BudgetEntryViewProps> = ({
   const expenseCategories = budget.customCategories?.expense || [...EXPENSE_CATEGORIES];
   const incomeCategories = budget.customCategories?.income || [...INCOME_CATEGORIES];
   const savingCategories = budget.customCategories?.saving || [...SAVING_CATEGORIES];
-  const itemTemplates = Array.isArray(budget.itemTemplates)
-    ? budget.itemTemplates
-    : [...DEFAULT_ITEM_TEMPLATES];
+  const itemTemplates = budget.isPersonalizedTemplate
+    ? stripDefaultStarterTemplates(budget.itemTemplates)
+    : [];
 
   // Modal period mode and selection
   const [modalFrequency, setModalFrequency] = useState<EntryFrequency>(frequency);

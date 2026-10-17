@@ -27,6 +27,7 @@ import {
   SAVING_CATEGORIES,
   PAYMENT_METHODS,
   DEFAULT_ITEM_TEMPLATES,
+  stripDefaultStarterTemplates,
 } from '../services/sampleData';
 import { ConfirmationModal } from './ConfirmationModal';
 
@@ -61,9 +62,9 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
   const incomeCats = budget.customCategories?.income || [...INCOME_CATEGORIES];
   const savingCats = budget.customCategories?.saving || [...SAVING_CATEGORIES];
 
-  const templates: BudgetItemTemplate[] = Array.isArray(budget.itemTemplates)
-    ? budget.itemTemplates
-    : [...DEFAULT_ITEM_TEMPLATES];
+  const templates: BudgetItemTemplate[] = budget.isPersonalizedTemplate
+    ? stripDefaultStarterTemplates(budget.itemTemplates)
+    : [];
 
   // Category editing state
   const [newCatName, setNewCatName] = useState('');
@@ -240,39 +241,74 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
     });
   };
 
-  const handleResetToDefaultCommonTemplate = () => {
-    setDeleteConfirm({
-      isOpen: true,
-      title: 'Load Default Common Estimate Template?',
-      description:
-        'This will replace your current estimated budget template items with the standard starter template using common income, expense, and funds items.',
-      affectedItems: [
-        `${DEFAULT_ITEM_TEMPLATES.length} common income, expense, and funds template items`,
-      ],
-      onConfirm: () => {
-        onUpdateCategories({
-          expense: Array.from(new Set([...EXPENSE_CATEGORIES, ...expenseCats])),
-          income: Array.from(new Set([...INCOME_CATEGORIES, ...incomeCats])),
-          saving: Array.from(new Set([...SAVING_CATEGORIES, ...savingCats])),
-        });
-        onUpdateTemplates(DEFAULT_ITEM_TEMPLATES.map((t) => ({ ...t })));
-        setDeleteConfirm((prev) => ({ ...prev, isOpen: false }));
-      },
-    });
+  const handleApplyHelperItem = (helperId: string) => {
+    const helper = DEFAULT_ITEM_TEMPLATES.find((d) => d.id === helperId);
+    if (!helper) return;
+    setTplType(helper.type);
+    setTplCategory(helper.category);
+    setTplItem(helper.item);
+    setTplEstimated(helper.defaultEstimatedCost > 0 ? String(helper.defaultEstimatedCost) : '');
+    setTplFrequency(helper.frequency || 'monthly');
+    setTplBiweeklyPeriod(helper.biweeklyPeriod || 'both');
+    setTplMethod(helper.defaultPaymentMethod || 'Bank Transfer');
+    setTplWithdraw(Boolean(helper.toBeWithdrawn));
   };
 
-  const handleClearAllTemplates = () => {
-    setDeleteConfirm({
-      isOpen: true,
-      title: 'Clear All Estimated Template Items?',
-      description:
-        'This will remove all pre-populated estimated items so you can build your personalized estimate budget from scratch. Your recorded period entries will not be affected.',
-      affectedItems: [`${templates.length} estimated budget template items`],
-      onConfirm: () => {
-        onUpdateTemplates([]);
-        setDeleteConfirm((prev) => ({ ...prev, isOpen: false }));
-      },
-    });
+  const createPersonalizedFromDefault = (): BudgetItemTemplate[] => {
+    const now = Date.now();
+    return DEFAULT_ITEM_TEMPLATES.map((t, idx) => ({
+      ...t,
+      id: `tpl-user-${now}-${idx}`,
+    }));
+  };
+
+  const handleSelectDefaultTemplate = () => {
+    if (templates.length > 0) {
+      setDeleteConfirm({
+        isOpen: true,
+        title: 'Replace with Default Starter Template?',
+        description:
+          'This will replace your current personalized template items with a fresh copy of the default starter template (common income, expense, and funds items) that you can customize. Default and personalized templates will not mix.',
+        affectedItems: [
+          `${DEFAULT_ITEM_TEMPLATES.length} common income, expense, and funds starter items`,
+        ],
+        onConfirm: () => {
+          onUpdateCategories({
+            expense: Array.from(new Set([...EXPENSE_CATEGORIES, ...expenseCats])),
+            income: Array.from(new Set([...INCOME_CATEGORIES, ...incomeCats])),
+            saving: Array.from(new Set([...SAVING_CATEGORIES, ...savingCats])),
+          });
+          onUpdateTemplates(createPersonalizedFromDefault());
+          setDeleteConfirm((prev) => ({ ...prev, isOpen: false }));
+        },
+      });
+    } else {
+      onUpdateCategories({
+        expense: Array.from(new Set([...EXPENSE_CATEGORIES, ...expenseCats])),
+        income: Array.from(new Set([...INCOME_CATEGORIES, ...incomeCats])),
+        saving: Array.from(new Set([...SAVING_CATEGORIES, ...savingCats])),
+      });
+      onUpdateTemplates(createPersonalizedFromDefault());
+    }
+  };
+
+  const handleStartFromBlank = () => {
+    if (templates.length > 0) {
+      setDeleteConfirm({
+        isOpen: true,
+        title: 'Start from a Blank Template?',
+        description:
+          'This will clear all current estimated template items so you can build your personalized estimate budget from a blank slate. Your recorded period entries will not be affected.',
+        affectedItems: [`${templates.length} estimated budget template items`],
+        onConfirm: () => {
+          onUpdateTemplates([]);
+          setDeleteConfirm((prev) => ({ ...prev, isOpen: false }));
+        },
+      });
+    } else {
+      onUpdateTemplates([]);
+      handleOpenAddTemplate();
+    }
   };
 
   const totalEstIncome = templates
@@ -300,14 +336,14 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
                 <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
                   Personalized Estimate Budget &amp; Categories
                 </h2>
-                {budget.isPersonalizedTemplate ? (
+                {budget.isPersonalizedTemplate && templates.length > 0 ? (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                     <Sparkles className="w-3 h-3" />
-                    <span>Personalized User Template (Saved to Drive)</span>
+                    <span>Personalized User Template ({templates.length} items)</span>
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                    <span>Default Common Starter Template</span>
+                    <span>No Template Set Up Yet</span>
                   </span>
                 )}
               </div>
@@ -388,28 +424,10 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
                     Personalized Estimated Budget Template
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Add, edit, or remove your recurring monthly/bi-weekly items. New users start with common categories and items that you can tailor to your own budget.
+                    Set up your template by selecting the default starter template or starting from a blank slate. Only your personalized template items appear in the budget grid.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={handleResetToDefaultCommonTemplate}
-                    className="px-3 py-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-semibold rounded-xl transition-colors cursor-pointer"
-                    title="Reset template items to common default categories and items"
-                  >
-                    Default Starter Template
-                  </button>
-                  {templates.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleClearAllTemplates}
-                      className="px-3 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-semibold rounded-xl transition-colors cursor-pointer"
-                      title="Remove all template items and build from scratch"
-                    >
-                      Start Blank
-                    </button>
-                  )}
                   <button
                     type="button"
                     onClick={handleOpenAddTemplate}
@@ -445,39 +463,65 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
 
               {/* Template Items Table */}
               {templates.length === 0 ? (
-                <div className="py-12 px-4 text-center border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl bg-slate-50/50 dark:bg-slate-800/30 space-y-3">
-                  <Sparkles className="w-8 h-8 text-indigo-500 mx-auto" />
-                  <div>
+                <div className="py-10 px-4 text-center border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl bg-slate-50/50 dark:bg-slate-800/30 space-y-5">
+                  <div className="space-y-1.5">
+                    <Sparkles className="w-8 h-8 text-indigo-500 mx-auto" />
                     <h5 className="text-sm font-bold text-slate-900 dark:text-white">
-                      No Estimated Budget Template Items Yet
+                      Set Up Your Personalized Estimate Budget Template
                     </h5>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
-                      Add your own custom income, expense, and funds items or load the default common starter template.
+                    <p className="text-xs text-slate-500 dark:text-slate-400 max-w-lg mx-auto">
+                      Choose how you would like to initialize your personalized template. Nothing is shown in the budget grid until you set up your template.
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={handleOpenAddTemplate}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add Custom Item</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onUpdateCategories({
-                          expense: Array.from(new Set([...EXPENSE_CATEGORIES, ...expenseCats])),
-                          income: Array.from(new Set([...INCOME_CATEGORIES, ...incomeCats])),
-                          saving: Array.from(new Set([...SAVING_CATEGORIES, ...savingCats])),
-                        });
-                        onUpdateTemplates(DEFAULT_ITEM_TEMPLATES.map((t) => ({ ...t })));
-                      }}
-                      className="px-4 py-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 font-semibold rounded-xl cursor-pointer"
-                    >
-                      Load Default Common Template
-                    </button>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto text-left">
+                    {/* Option 1: Select Default Template */}
+                    <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xs flex flex-col justify-between gap-3">
+                      <div>
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 mb-2">
+                          <Sparkles className="w-3 h-3" />
+                          <span>Option 1: Recommended Helper</span>
+                        </div>
+                        <h6 className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm">
+                          Select Default Starter Template
+                        </h6>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                          Pre-populate your personalized template with {DEFAULT_ITEM_TEMPLATES.length} common income, expense, and funds items that you can freely edit, rename, or remove.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleSelectDefaultTemplate}
+                        className="w-full py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Use Default Starter Template</span>
+                      </button>
+                    </div>
+
+                    {/* Option 2: Start from a Blank */}
+                    <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xs flex flex-col justify-between gap-3">
+                      <div>
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 mb-2">
+                          <Plus className="w-3 h-3" />
+                          <span>Option 2: Custom Scratch</span>
+                        </div>
+                        <h6 className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm">
+                          Start from a Blank Template
+                        </h6>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                          Begin with an empty template list and add your own personalized income, living expenses, and funds items one by one from scratch.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleStartFromBlank}
+                        className="w-full py-2 px-4 bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-100 text-white dark:text-slate-900 font-semibold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Start from Blank &amp; Add Item</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -714,6 +758,30 @@ export const CategoryAndTemplateManagerModal: React.FC<CategoryAndTemplateManage
             </div>
 
             <form onSubmit={handleSaveTemplate} className="space-y-3.5">
+              {!tplId && (
+                <div className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60">
+                  <label className="block text-[11px] font-bold text-amber-800 dark:text-amber-300 mb-1">
+                    Starter Template Helper (Optional Quick-Fill)
+                  </label>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleApplyHelperItem(e.target.value);
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-lg text-xs text-slate-700 dark:text-slate-200"
+                  >
+                    <option value="">-- Choose a common starter item as helper --</option>
+                    {DEFAULT_ITEM_TEMPLATES.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        [{d.type === 'saving' ? 'Funds' : d.type.toUpperCase()}] {d.item} ({d.category})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-slate-600 font-semibold mb-1">Type</label>
                 <div className="grid grid-cols-3 gap-2">

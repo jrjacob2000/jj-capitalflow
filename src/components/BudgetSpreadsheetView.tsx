@@ -42,7 +42,7 @@ import {
   INCOME_CATEGORIES,
   SAVING_CATEGORIES,
   PAYMENT_METHODS,
-  DEFAULT_ITEM_TEMPLATES,
+  stripDefaultStarterTemplates,
   isTemplateValidForPeriod,
 } from '../services/sampleData';
 import { CategoryAndTemplateManagerModal } from './CategoryAndTemplateManagerModal';
@@ -121,9 +121,9 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
   const expenseCategories = budget.customCategories?.expense || [...EXPENSE_CATEGORIES];
   const incomeCategories = budget.customCategories?.income || [...INCOME_CATEGORIES];
   const savingCategories = budget.customCategories?.saving || [...SAVING_CATEGORIES];
-  const itemTemplates: BudgetItemTemplate[] = Array.isArray(budget.itemTemplates)
-    ? budget.itemTemplates
-    : [...DEFAULT_ITEM_TEMPLATES];
+  const itemTemplates: BudgetItemTemplate[] = budget.isPersonalizedTemplate
+    ? stripDefaultStarterTemplates(budget.itemTemplates)
+    : [];
 
   // Helper to find estimated cost for any item name or category
   const getEstimateForItem = (itemName: string, catName?: string, type?: 'income' | 'expense' | 'saving'): number => {
@@ -946,12 +946,17 @@ export const BudgetSpreadsheetView: React.FC<BudgetSpreadsheetViewProps> = ({
                 <span className="inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 whitespace-nowrap shrink-0 leading-none">
                   {selectedPeriod} ({budget.year})
                 </span>
-                <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold whitespace-nowrap shrink-0 leading-none">
+                <button
+                  type="button"
+                  onClick={() => setIsManagerModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold whitespace-nowrap shrink-0 leading-none hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors cursor-pointer"
+                  title="Click to manage or set up your Personalized Estimate Budget Template"
+                >
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                  {budget.isPersonalizedTemplate
+                  {budget.isPersonalizedTemplate && itemTemplates.length > 0
                     ? `Personalized Template (${itemTemplates.length} items)`
-                    : `Default Starter Template (${itemTemplates.length} items)`}
-                </span>
+                    : 'Set Up Personalized Template'}
+                </button>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Estimates are loaded on the sheet. Click any line item to record the actual amount.
